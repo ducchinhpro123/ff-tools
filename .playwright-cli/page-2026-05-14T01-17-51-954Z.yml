@@ -1,0 +1,58 @@
+- main [ref=e2]:
+  - generic [ref=e1689]:
+    - generic [ref=e1690]:
+      - heading "Overlay Controls" [level=1] [ref=e1691]
+      - navigation "Control sections" [ref=e1692]:
+        - button "Overlay" [ref=e1693] [cursor=pointer]:
+          - generic [ref=e1694]: Overlay
+        - button "Groups 1" [ref=e1695] [cursor=pointer]:
+          - generic [ref=e1696]: Groups
+          - emphasis [ref=e1697]: "1"
+        - button "Players 1" [ref=e1698] [cursor=pointer]:
+          - generic [ref=e1699]: Players
+          - emphasis [ref=e1700]: "1"
+      - generic [ref=e1701]:
+        - generic [ref=e1702]:
+          - generic [ref=e1703]:
+            - generic [ref=e1704]: Roster
+            - heading "Player Data" [level=2] [ref=e1705]
+          - generic [ref=e1706]:
+            - generic [ref=e1707] [cursor=pointer]:
+              - text: Import CSV
+              - button "Import CSV" [ref=e1708]
+            - button "Export" [ref=e1709] [cursor=pointer]
+        - generic [ref=e1710]:
+          - textbox "Player ID" [ref=e1711]
+          - textbox "Player name" [ref=e1712]
+          - textbox "Team name" [ref=e1713]
+          - button "Add player" [ref=e1714] [cursor=pointer]
+        - generic [ref=e1715]:
+          - generic [ref=e1716]: Search players
+          - textbox "Search players" [ref=e1717]:
+            - /placeholder: Find by ID, player, or team...
+        - generic [ref=e1719]:
+          - textbox [ref=e1720]: "1001"
+          - textbox [ref=e1721]: Test Player
+          - textbox [ref=e1722]: Test Team
+          - button "Save" [ref=e1723] [cursor=pointer]
+          - button "Delete" [ref=e1724] [cursor=pointer]
+      - generic [ref=e1725]:
+        - link "Open overlay" [ref=e1726] [cursor=pointer]:
+          - /url: /overlay
+        - generic [ref=e1727]: debugger-2026-05-14T07-08-35.log
+    - generic [ref=e1730]:
+      - generic [ref=e1731]:
+        - generic [ref=e1732]: TEAM
+        - generic [ref=e1733]: ELIMS
+        - generic [ref=e1734]: ALIVE
+      - generic [ref=e1736]:
+        - generic [ref=e1737]: ALIVE
+        - generic [ref=e1743]: "|"
+        - generic [ref=e1744]: ELIMINATED
+      - generic "C:\\Users\\c\\Downloads\\OB53\\Free Fire_64_Data\\Debugger\\debugger-2026-05-14T07-08-35.log" [ref=e1751]:
+        - generic [ref=e1752]:
+          - generic [ref=e1754]: READING
+          - strong [ref=e1755]: debugger-2026-05-14T07-08-35.log
+        - generic [ref=e1756]:
+          - generic [ref=e1757]: "|"
+          - emphasis [ref=e1759]: waiting

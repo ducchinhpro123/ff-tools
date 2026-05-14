@@ -1,0 +1,183 @@
+- main [ref=e2]:
+  - generic [ref=e504]:
+    - generic [ref=e505]:
+      - heading "Overlay Controls" [level=1] [ref=e506]
+      - navigation "Control sections" [ref=e507]:
+        - button "Overlay" [ref=e508] [cursor=pointer]:
+          - generic [ref=e509]: Overlay
+        - button "Groups 1" [ref=e510] [cursor=pointer]:
+          - generic [ref=e511]: Groups
+          - emphasis [ref=e512]: "1"
+        - button "Players 0" [ref=e513] [cursor=pointer]:
+          - generic [ref=e514]: Players
+          - emphasis [ref=e515]: "0"
+      - generic [ref=e516]:
+        - generic [ref=e517]:
+          - generic [ref=e518]:
+            - generic [ref=e519]: Planning
+            - heading "Group Manager" [level=2] [ref=e520]
+          - generic [ref=e521]:
+            - generic [ref=e522] [cursor=pointer]:
+              - text: Import CSV
+              - button "Import CSV" [ref=e523]
+            - button "Export" [ref=e524] [cursor=pointer]
+        - generic [ref=e525]:
+          - textbox "Group name" [ref=e526]
+          - textbox "Note" [ref=e527]
+          - textbox "Match IDs, separated by comma or new line" [ref=e528]
+          - button "Add group" [ref=e529] [cursor=pointer]
+        - generic [ref=e530]:
+          - generic [ref=e531]: Search groups
+          - textbox "Search groups" [ref=e532]:
+            - /placeholder: Find by group, note, or match...
+        - button "day-1-a 2 matches | 0 teams Round 1" [ref=e534] [cursor=pointer]:
+          - strong [ref=e535]: day-1-a
+          - generic [ref=e536]: 2 matches | 0 teams
+          - emphasis [ref=e537]: Round 1
+        - generic [ref=e538]:
+          - generic [ref=e539]:
+            - generic [ref=e540]:
+              - generic [ref=e541]: Selected
+              - heading "day-1-a" [level=3] [ref=e542]
+            - button "Delete" [ref=e543]
+          - generic [ref=e544]:
+            - generic [ref=e545]:
+              - generic [ref=e546]: Group
+              - textbox "Group" [ref=e547]: day-1-a
+            - generic [ref=e548]:
+              - generic [ref=e549]: Note
+              - textbox "Note" [ref=e550]: Round 1
+            - generic [ref=e551]:
+              - generic [ref=e552]: Team names for today
+              - textbox "Team names for today" [ref=e553]:
+                - /placeholder: One team per line
+            - button "Save group" [ref=e554] [cursor=pointer]
+          - generic [ref=e555]:
+            - textbox "Match ID" [ref=e556]
+            - textbox "Description" [ref=e557]
+            - button "Add match" [ref=e558] [cursor=pointer]
+          - generic [ref=e560]: No player teams available.
+          - generic [ref=e561]:
+            - generic [ref=e562]:
+              - strong [ref=e564]: "12345"
+              - button "Remove" [ref=e565] [cursor=pointer]
+            - generic [ref=e566]:
+              - strong [ref=e568]: "67890"
+              - button "Remove" [ref=e569] [cursor=pointer]
+      - generic [ref=e570]:
+        - link "Open overlay" [ref=e571] [cursor=pointer]:
+          - /url: /overlay
+        - generic [ref=e572]: debugger-2026-05-14T07-08-35.log
+    - generic [ref=e575]:
+      - generic [ref=e576]:
+        - generic [ref=e577]: TEAM
+        - generic [ref=e578]: ELIMS
+        - generic [ref=e579]: ALIVE
+      - generic [ref=e580]:
+        - article [ref=e581]:
+          - generic [ref=e582]:
+            - generic [ref=e583]: "#1"
+            - generic [ref=e584]:
+              - generic [ref=e586]: TE
+              - generic "TE" [ref=e587]
+            - generic [ref=e588]: "42"
+            - generic "3 alive" [ref=e589]
+        - article [ref=e594]:
+          - generic [ref=e595]:
+            - generic [ref=e596]: "#2"
+            - generic [ref=e597]:
+              - generic [ref=e599]: YN
+              - generic "YNAF" [ref=e600]
+            - generic [ref=e601]: "24"
+            - generic "0 alive" [ref=e602]
+        - article [ref=e607]:
+          - generic [ref=e608]:
+            - generic [ref=e609]: "#3"
+            - generic [ref=e610]:
+              - generic [ref=e612]: HS
+              - generic "HS" [ref=e613]
+            - generic [ref=e614]: "23"
+            - generic "0 alive" [ref=e615]
+        - article [ref=e620]:
+          - generic [ref=e621]:
+            - generic [ref=e622]: "#4"
+            - generic [ref=e623]:
+              - generic [ref=e625]: HT
+              - generic "HT" [ref=e626]
+            - generic [ref=e627]: "21"
+            - generic "0 alive" [ref=e628]
+        - article [ref=e633]:
+          - generic [ref=e634]:
+            - generic [ref=e635]: "#5"
+            - generic [ref=e636]:
+              - generic [ref=e638]: "NO"
+              - generic "NOM" [ref=e639]
+            - generic [ref=e640]: "20"
+            - generic "0 alive" [ref=e641]
+        - article [ref=e646]:
+          - generic [ref=e647]:
+            - generic [ref=e648]: "#6"
+            - generic [ref=e649]:
+              - generic [ref=e651]: EA
+              - generic "EAG" [ref=e652]
+            - generic [ref=e653]: "18"
+            - generic "0 alive" [ref=e654]
+        - article [ref=e659]:
+          - generic [ref=e660]:
+            - generic [ref=e661]: "#7"
+            - generic [ref=e662]:
+              - generic [ref=e664]: HT
+              - generic "HTA" [ref=e665]
+            - generic [ref=e666]: "12"
+            - generic "0 alive" [ref=e667]
+        - article [ref=e672]:
+          - generic [ref=e673]:
+            - generic [ref=e674]: "#8"
+            - generic [ref=e675]:
+              - generic [ref=e677]: SF
+              - generic "SF" [ref=e678]
+            - generic [ref=e679]: "9"
+            - generic "0 alive" [ref=e680]
+        - article [ref=e685]:
+          - generic [ref=e686]:
+            - generic [ref=e687]: "#9"
+            - generic [ref=e688]:
+              - generic [ref=e690]: NL
+              - generic "NLBA" [ref=e691]
+            - generic [ref=e692]: "7"
+            - generic "0 alive" [ref=e693]
+        - article [ref=e698]:
+          - generic [ref=e699]:
+            - generic [ref=e700]: "#10"
+            - generic [ref=e701]:
+              - generic [ref=e703]: CP
+              - generic "CPX" [ref=e704]
+            - generic [ref=e705]: "5"
+            - generic "0 alive" [ref=e706]
+        - article [ref=e711]:
+          - generic [ref=e712]:
+            - generic [ref=e713]: "#11"
+            - generic [ref=e714]:
+              - generic [ref=e716]: FA
+              - generic "FAPA" [ref=e717]
+            - generic [ref=e718]: "1"
+            - generic "0 alive" [ref=e719]
+        - article [ref=e724]:
+          - generic [ref=e725]:
+            - generic [ref=e726]: "#12"
+            - generic [ref=e727]:
+              - generic [ref=e729]: LK
+              - generic "LEKIEN ESPORTS" [ref=e730]: LKE
+            - generic [ref=e731]: "0"
+            - generic "0 alive" [ref=e732]
+      - generic [ref=e738]:
+        - generic [ref=e739]: ALIVE
+        - generic [ref=e745]: "|"
+        - generic [ref=e746]: ELIMINATED
+      - generic "C:\\Users\\c\\Downloads\\OB53\\Free Fire_64_Data\\Debugger\\debugger-2026-05-14T07-08-35.log" [ref=e753]:
+        - generic [ref=e754]:
+          - generic [ref=e756]: READING
+          - strong [ref=e757]: debugger-2026-05-14T07-08-35.log
+        - generic [ref=e758]:
+          - generic [ref=e759]: "|"
+          - emphasis [ref=e761]: 8:14:37 AM

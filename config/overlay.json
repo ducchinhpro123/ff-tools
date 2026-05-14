@@ -1,0 +1,21 @@
+{
+  "width": 520,
+  "scale": 1.2,
+  "rowCount": 11,
+  "fontSize": 27,
+  "rowHeight": 37,
+  "opacity": 0.78,
+  "accentColor": "#f33db4",
+  "headerColor": "#ff9d1e",
+  "panelColor": "#1c1d23",
+  "textColor": "#ffffff",
+  "mutedColor": "#767780",
+  "showLogo": true,
+  "showFooter": true,
+  "showDebug": true,
+  "animationEnabled": true,
+  "moveAnimation": "glide",
+  "rowEnterAnimation": "slide",
+  "playerLostAnimation": "pulse",
+  "animationSpeed": 0.4
+}

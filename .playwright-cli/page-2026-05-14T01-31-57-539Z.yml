@@ -1,0 +1,223 @@
+- main [ref=e2]:
+  - generic [ref=e3]:
+    - generic [ref=e4]:
+      - heading "Overlay Controls" [level=1] [ref=e5]
+      - navigation "Control sections" [ref=e6]:
+        - button "Overlay" [ref=e7] [cursor=pointer]:
+          - generic [ref=e8]: Overlay
+        - button "Groups 2" [ref=e9] [cursor=pointer]:
+          - generic [ref=e10]: Groups
+          - emphasis [ref=e11]: "2"
+        - button "Players 0" [ref=e12] [cursor=pointer]:
+          - generic [ref=e13]: Players
+          - emphasis [ref=e14]: "0"
+      - generic [ref=e15]:
+        - generic [ref=e16]:
+          - generic [ref=e17]:
+            - generic [ref=e18]: Input
+            - heading "Log Reader" [level=2] [ref=e19]
+          - generic [ref=e20]: Auto
+        - generic [ref=e21]:
+          - generic [ref=e22]: Path
+          - textbox "Path" [ref=e23]:
+            - /placeholder: C:\full\path\debugger-2026-05-14T08-39-14.log
+            - text: C:\Users\c\Downloads\OB53\Free Fire_64_Data\Debugger\debugger-2026-05-14T07-08-35.log
+        - generic [ref=e24]:
+          - button "Attach" [ref=e25] [cursor=pointer]
+          - button "Auto" [ref=e26] [cursor=pointer]
+          - generic [ref=e27]: Reading
+        - generic [ref=e28]:
+          - generic [ref=e29]:
+            - generic [ref=e30]: Current
+            - strong [ref=e31]: debugger-2026-05-14T07-08-35.log
+          - generic [ref=e32]:
+            - generic [ref=e33]: Updated
+            - strong [ref=e34]: 8:31:43 AM
+      - generic [ref=e35]:
+        - generic [ref=e36]:
+          - generic [ref=e37]: Width
+          - slider "Width" [ref=e38]: "540"
+          - status [ref=e39]: "540"
+        - generic [ref=e40]:
+          - generic [ref=e41]: Scale
+          - slider "Scale" [ref=e42]: "1.1"
+          - status [ref=e43]: "1.1"
+        - generic [ref=e44]:
+          - generic [ref=e45]: Rows
+          - slider "Rows" [ref=e46]: "14"
+          - status [ref=e47]: "14"
+        - generic [ref=e48]:
+          - generic [ref=e49]: Font
+          - slider "Font" [ref=e50]: "27"
+          - status [ref=e51]: "27"
+        - generic [ref=e52]:
+          - generic [ref=e53]: Row height
+          - slider "Row height" [ref=e54]: "44"
+          - status [ref=e55]: "44"
+        - generic [ref=e56]:
+          - generic [ref=e57]: Opacity
+          - slider "Opacity" [ref=e58]: "0.91"
+          - status [ref=e59]: "0.91"
+        - generic [ref=e60]:
+          - generic [ref=e61]: Accent
+          - textbox "Accent" [ref=e62]: "#ff3b30"
+        - generic [ref=e63]:
+          - generic [ref=e64]: Header
+          - textbox "Header" [ref=e65]: "#ff9d1e"
+        - generic [ref=e66]:
+          - generic [ref=e67]: Panel
+          - textbox "Panel" [ref=e68]: "#1c1d23"
+        - generic [ref=e69]:
+          - generic [ref=e70]: Text
+          - textbox "Text" [ref=e71]: "#ffffff"
+        - generic [ref=e72]:
+          - generic [ref=e73]: Muted
+          - textbox "Muted" [ref=e74]: "#767780"
+        - generic [ref=e75]:
+          - generic [ref=e76]: Colors
+          - button "Reset colors" [ref=e77] [cursor=pointer]
+        - generic [ref=e78]:
+          - generic [ref=e79]: Animation
+          - checkbox "Animation" [checked] [ref=e80]
+        - generic [ref=e81]:
+          - generic [ref=e82]: Rank move
+          - combobox "Rank move" [ref=e83]:
+            - option "Glide"
+            - option "Slide"
+            - option "Snap" [selected]
+            - option "Off"
+        - generic [ref=e84]:
+          - generic [ref=e85]: New row
+          - combobox "New row" [ref=e86]:
+            - option "Slide in" [selected]
+            - option "Fade in"
+            - option "Off"
+        - generic [ref=e87]:
+          - generic [ref=e88]: Player lost
+          - combobox "Player lost" [ref=e89]:
+            - option "Pulse" [selected]
+            - option "Shake"
+            - option "Off"
+        - generic [ref=e90]:
+          - generic [ref=e91]: Anim speed
+          - slider "Anim speed" [ref=e92]: "1"
+          - status [ref=e93]: "1"
+        - generic [ref=e94]:
+          - generic [ref=e95]: Logo
+          - checkbox "Logo" [checked] [ref=e96]
+        - generic [ref=e97]:
+          - generic [ref=e98]: Footer
+          - checkbox "Footer" [checked] [ref=e99]
+        - generic [ref=e100]:
+          - generic [ref=e101]: Debug
+          - checkbox "Debug" [ref=e102]
+      - generic [ref=e103]:
+        - link "Open overlay" [ref=e104] [cursor=pointer]:
+          - /url: /overlay
+        - generic [ref=e105]: debugger-2026-05-14T07-08-35.log
+    - generic [ref=e108]:
+      - generic [ref=e109]:
+        - generic [ref=e110]: TEAM
+        - generic [ref=e111]: ELIMS
+        - generic [ref=e112]: ALIVE
+      - generic [ref=e113]:
+        - article [ref=e114]:
+          - generic [ref=e115]:
+            - generic [ref=e116]: "#1"
+            - generic [ref=e117]:
+              - generic [ref=e119]: CP
+              - generic "CPX" [ref=e120]
+            - generic [ref=e121]: "18"
+            - generic "0 alive" [ref=e122]
+        - article [ref=e128]:
+          - generic [ref=e129]:
+            - generic [ref=e130]: "#2"
+            - generic [ref=e131]:
+              - generic [ref=e133]: "NO"
+              - generic "NOM" [ref=e134]
+            - generic [ref=e135]: "14"
+            - generic "0 alive" [ref=e136]
+        - article [ref=e143]:
+          - generic [ref=e144]:
+            - generic [ref=e145]: "#3"
+            - generic [ref=e146]:
+              - generic [ref=e148]: HT
+              - generic "HTA" [ref=e149]
+            - generic [ref=e150]: "12"
+            - generic "0 alive" [ref=e151]
+        - article [ref=e156]:
+          - generic [ref=e157]:
+            - generic [ref=e158]: "#4"
+            - generic [ref=e159]:
+              - generic [ref=e161]: EA
+              - generic "EAG" [ref=e162]
+            - generic [ref=e163]: "12"
+            - generic "0 alive" [ref=e164]
+        - article [ref=e171]:
+          - generic [ref=e172]:
+            - generic [ref=e173]: "#5"
+            - generic [ref=e174]:
+              - generic [ref=e176]: HS
+              - generic "HS" [ref=e177]
+            - generic [ref=e178]: "10"
+            - generic "0 alive" [ref=e179]
+        - article [ref=e196]:
+          - generic [ref=e197]:
+            - generic [ref=e198]: "#6"
+            - generic [ref=e199]:
+              - generic [ref=e201]: AP
+              - generic "AP" [ref=e202]
+            - generic [ref=e203]: "10"
+            - generic "0 alive" [ref=e204]
+        - article [ref=e209]:
+          - generic [ref=e210]:
+            - generic [ref=e211]: "#7"
+            - generic [ref=e212]:
+              - generic [ref=e214]: SF
+              - generic "SF" [ref=e215]
+            - generic [ref=e216]: "9"
+            - generic "0 alive" [ref=e217]
+        - article [ref=e224]:
+          - generic [ref=e225]:
+            - generic [ref=e226]: "#8"
+            - generic [ref=e227]:
+              - generic [ref=e229]: HT
+              - generic "HT" [ref=e230]
+            - generic [ref=e231]: "9"
+            - generic "0 alive" [ref=e232]
+        - article [ref=e241]:
+          - generic [ref=e242]:
+            - generic [ref=e243]: "#9"
+            - generic [ref=e244]:
+              - generic [ref=e246]: NL
+              - generic "NLBA" [ref=e247]
+            - generic [ref=e248]: "8"
+            - generic "0 alive" [ref=e249]
+        - article [ref=e266]:
+          - generic [ref=e267]:
+            - generic [ref=e268]: "#10"
+            - generic [ref=e269]:
+              - generic [ref=e271]: YN
+              - generic "YNAF" [ref=e272]
+            - generic [ref=e273]: "2"
+            - generic "0 alive" [ref=e274]
+        - article [ref=e282]:
+          - generic [ref=e283]:
+            - generic [ref=e284]: "#11"
+            - generic [ref=e285]:
+              - generic [ref=e287]: TE
+              - generic "TE" [ref=e288]
+            - generic [ref=e289]: "1"
+            - generic "3 alive" [ref=e290]
+        - article [ref=e295]:
+          - generic [ref=e296]:
+            - generic [ref=e297]: "#12"
+            - generic [ref=e298]:
+              - generic [ref=e300]: LK
+              - generic "LEKIEN ESPORTS" [ref=e301]: LKE
+            - generic [ref=e302]: "0"
+            - generic "0 alive" [ref=e303]
+      - generic [ref=e309]:
+        - generic [ref=e310]: ALIVE
+        - generic [ref=e316]: "|"
+        - generic [ref=e317]: ELIMINATED

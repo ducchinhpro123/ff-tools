@@ -1,0 +1,6 @@
+
+> free-fire-obs-overlay@0.1.0 dev
+> tsx src/server.ts
+
+Free Fire OBS overlay listening at http://localhost:4177/overlay
+Control panel available at http://localhost:4177/control
