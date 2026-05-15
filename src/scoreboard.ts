@@ -1,5 +1,14 @@
 import { assetUrl } from "./paths";
-import type { MatchStatsBaseTeam, PlayerRosterEntry, PublicEvent, PublicState, TeamConfig, TeamRow } from "./types";
+import type {
+  MatchStatsBaseTeam,
+  PlayerRosterEntry,
+  PublicEliminatedEvent,
+  PublicEvent,
+  PublicState,
+  TeamConfig,
+  TeamRow,
+  WinRateRow
+} from "./types";
 
 interface TeamInternal {
   teamId: number;
@@ -41,8 +50,11 @@ export class ScoreboardState {
   private eventScoreIncreases = new Set<number>();
   private lastDeadPlayerByEvent = new Map<string, string>();
   private eliminatedTeamIds = new Set<number>();
+  private emittedEliminatedKeys = new Set<string>();
   private events: PublicEvent[] = [];
+  private eliminatedEvents: PublicEliminatedEvent[] = [];
   private eventCounter = 0;
+  private eliminatedEventCounter = 0;
   private scoreOrderCounter = 0;
   sourceLog: string | null = null;
   sourceLogUpdatedAt: string | null = null;
@@ -60,8 +72,11 @@ export class ScoreboardState {
     this.eventScoreIncreases.clear();
     this.lastDeadPlayerByEvent.clear();
     this.eliminatedTeamIds.clear();
+    this.emittedEliminatedKeys.clear();
     this.events = [];
+    this.eliminatedEvents = [];
     this.eventCounter = 0;
+    this.eliminatedEventCounter = 0;
     this.scoreOrderCounter = 0;
     this.sourceLog = sourceLog;
     this.sourceLogUpdatedAt = null;
@@ -151,6 +166,7 @@ export class ScoreboardState {
     const death = line.match(/Player (\d+) Dead, killed by (\d+)/);
     if (death) {
       const playerId = death[1];
+      this.addDeadEvent(line, playerId, death[2]);
       if (this.currentEventId) {
         this.lastDeadPlayerByEvent.set(this.currentEventId, playerId);
       }
@@ -171,6 +187,7 @@ export class ScoreboardState {
       const deadPlayer = deadPlayerId ? this.players.get(deadPlayerId) : null;
       const scoreTeamId = deadPlayer ? this.scoreTeamForPlayer(deadPlayer) : null;
       if (scoreTeamId) {
+        this.addTeamEliminatedEvent(line, deadPlayerId || "", deadPlayer, scoreTeamId);
         this.eliminatedTeamIds.add(scoreTeamId);
         for (const player of this.players.values()) {
           if (this.scoreTeamForPlayer(player) === scoreTeamId) player.alive = false;
@@ -183,6 +200,7 @@ export class ScoreboardState {
     if (revive) {
       const playerId = revive[1];
       const player = this.players.get(playerId);
+      this.addReviveEvent(line, playerId);
       if (player) {
         player.alive = true;
         this.pendingDead.delete(playerId);
@@ -274,6 +292,9 @@ export class ScoreboardState {
       sourceLogUpdatedAt: this.sourceLogUpdatedAt,
       matchEnded: this.matchEnded,
       events: this.events,
+      eliminatedEvents: this.eliminatedEvents,
+      winRates: this.calculateWinRates(publicRows),
+      logs: [],
       teams: publicRows
     };
   }
@@ -281,12 +302,9 @@ export class ScoreboardState {
   private addKnockdownEvent(line: string, downedId: string, killerId: string): void {
     const downed = this.playerInfo(downedId);
     const killer = this.playerInfo(killerId);
-    const timestamp = line.match(/^\[([^\]]+)\]/)?.[1] || null;
-
-    this.events.unshift({
-      id: `${++this.eventCounter}`,
+    this.addEvent({
       type: "knockdown",
-      timestamp,
+      timestamp: this.timestampForLine(line),
       eventId: this.currentEventId,
       downedId,
       killerId,
@@ -296,8 +314,94 @@ export class ScoreboardState {
       killerTeam: killer.teamName,
       message: `${killer.name} knocked ${downed.name}`
     });
+  }
 
-    this.events = this.events.slice(0, 8);
+  private addDeadEvent(line: string, victimId: string, killerId: string): void {
+    const victim = this.playerInfo(victimId);
+    const killer = this.playerInfo(killerId);
+    this.addEvent({
+      type: "dead",
+      timestamp: this.timestampForLine(line),
+      eventId: this.currentEventId,
+      victimId,
+      killerId,
+      victimName: victim.name,
+      killerName: killer.name,
+      victimTeam: victim.teamName,
+      killerTeam: killer.teamName,
+      message: `${killer.name} eliminated ${victim.name}`
+    });
+  }
+
+  private addReviveEvent(line: string, playerId: string): void {
+    const player = this.playerInfo(playerId);
+    this.addEvent({
+      type: "revive",
+      timestamp: this.timestampForLine(line),
+      eventId: this.currentEventId,
+      playerId,
+      playerName: player.name,
+      teamName: player.teamName,
+      message: `${player.name} revived`
+    });
+  }
+
+  private addTeamEliminatedEvent(
+    line: string,
+    playerId: string,
+    player: PlayerInternal | null | undefined,
+    teamId: number
+  ): void {
+    const dedupeKey = `${this.currentEventId || "no-event"}:${teamId}`;
+    if (this.emittedEliminatedKeys.has(dedupeKey)) return;
+    this.emittedEliminatedKeys.add(dedupeKey);
+
+    const row = this.toRow(this.ensureTeam(teamId));
+    const playerData = this.playerInfo(playerId);
+    const teamPlayers = Array.from(this.players.values()).filter((candidate) => this.scoreTeamForPlayer(candidate) === teamId);
+    const activeTeams = Array.from(this.teams.values()).filter((team) => !this.eliminatedTeamIds.has(team.teamId)).length;
+    const event: PublicEliminatedEvent = {
+      id: `${++this.eliminatedEventCounter}`,
+      timestamp: this.timestampForLine(line),
+      eventId: this.currentEventId,
+      teamId,
+      teamName: row.name,
+      shortName: row.shortName,
+      logoPath: row.logoPath,
+      accentColor: row.accentColor,
+      playerId,
+      originId: player?.originPlayerId || playerId,
+      playerName: playerData.name,
+      elims: row.liveScore,
+      rank: Math.max(1, activeTeams),
+      teamMateIds: teamPlayers.map((teammate) => teammate.originPlayerId)
+    };
+
+    this.eliminatedEvents.unshift(event);
+    this.eliminatedEvents = this.eliminatedEvents.slice(0, 16);
+    this.addEvent({
+      type: "team_eliminated",
+      timestamp: event.timestamp,
+      eventId: event.eventId,
+      playerId,
+      playerName: playerData.name,
+      teamName: event.teamName,
+      rank: event.rank,
+      elims: event.elims,
+      message: `${event.teamName} eliminated at #${event.rank}`
+    });
+  }
+
+  private addEvent(event: Omit<PublicEvent, "id">): void {
+    this.events.unshift({
+      id: `${++this.eventCounter}`,
+      ...event
+    });
+    this.events = this.events.slice(0, 24);
+  }
+
+  private timestampForLine(line: string): string | null {
+    return line.match(/^\[([^\]]+)\]/)?.[1] || null;
   }
 
   private playerInfo(playerId: string): { name: string; teamName: string } {
@@ -433,6 +537,63 @@ export class ScoreboardState {
       alive: 0,
       eliminated: 0,
       players: 0
+    };
+  }
+
+  private calculateWinRates(rows: TeamRow[]): WinRateRow[] {
+    const activeRows = rows.filter((row) => row.players > 0 && !row.teamEliminated && row.alive > 0);
+    const eliminatedRows = rows.filter((row) => row.players > 0 && (row.teamEliminated || row.alive <= 0));
+    const active = activeRows.map((row) => {
+      const power = Math.pow(row.alive, 2) * (1 + row.liveScore / 10);
+      return {
+        row,
+        power,
+        rawHundredths: 0,
+        floorHundredths: 0,
+        remainder: 0
+      };
+    });
+    const totalPower = active.reduce((sum, item) => sum + item.power, 0);
+
+    if (totalPower > 0) {
+      let floorSum = 0;
+      for (const item of active) {
+        item.rawHundredths = (item.power / totalPower) * 10000;
+        item.floorHundredths = Math.floor(item.rawHundredths + Number.EPSILON);
+        item.remainder = item.rawHundredths - item.floorHundredths;
+        floorSum += item.floorHundredths;
+      }
+
+      const byRemainder = [...active].sort((a, b) => b.remainder - a.remainder);
+      for (let i = 0; i < 10000 - floorSum; i += 1) {
+        byRemainder[i % byRemainder.length].floorHundredths += 1;
+      }
+    }
+
+    const winRates = [
+      ...active.map((item) => this.toWinRateRow(item.row, item.floorHundredths / 100)),
+      ...eliminatedRows.map((row) => this.toWinRateRow(row, 0))
+    ].sort((a, b) => b.winRate - a.winRate || b.points - a.points || b.memberCount - a.memberCount || a.teamId - b.teamId);
+
+    winRates.forEach((row, index) => {
+      row.rank = index + 1;
+    });
+
+    return winRates;
+  }
+
+  private toWinRateRow(row: TeamRow, winRate: number): WinRateRow {
+    return {
+      rank: 0,
+      teamId: row.teamId,
+      name: row.name,
+      shortName: row.shortName,
+      logoPath: row.logoPath,
+      accentColor: row.accentColor,
+      memberCount: row.alive,
+      points: row.liveScore,
+      winRate: Number(winRate.toFixed(2)),
+      teamEliminated: row.teamEliminated
     };
   }
 

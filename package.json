@@ -2,11 +2,42 @@
   "name": "free-fire-obs-overlay",
   "version": "0.1.0",
   "private": true,
+  "main": "electron/main.cjs",
   "scripts": {
     "build": "vite build && tsc -p tsconfig.server.json",
+    "desktop:dev": "npm run build && electron electron/main.cjs",
+    "desktop:pack": "npm run build && electron-builder --dir",
+    "desktop:win": "npm run build && electron-builder --win portable",
     "dev": "tsx src/server.ts",
     "start": "node dist/server/src/server.js",
     "test": "npm run build && node --test dist/server/tests/*.test.js"
+  },
+  "build": {
+    "appId": "com.voducchinh.fftools",
+    "productName": "FF Tools Overlay",
+    "asar": false,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "electron/**/*",
+      "dist/**/*",
+      "assets/**/*",
+      "config/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "requestedExecutionLevel": "asInvoker",
+      "signAndEditExecutable": false
+    }
   },
   "dependencies": {
     "csv-parse": "^5.6.0",
@@ -17,6 +48,8 @@
     "@types/express": "^4.17.21",
     "@types/node": "^22.10.2",
     "@types/ws": "^8.5.12",
+    "electron": "^42.1.0",
+    "electron-builder": "^26.8.1",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vite": "^6.0.5"

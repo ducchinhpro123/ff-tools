@@ -4,6 +4,7 @@ import { DEFAULT_LOG_DIR } from "./defaults";
 import { ScoreboardState } from "./scoreboard";
 
 type ChangeHandler = () => void;
+type LogHandler = (message: string, level?: "info" | "warn" | "error" | "success" | "debug") => void;
 
 export class LogTailer {
   private timer: NodeJS.Timeout | null = null;
@@ -17,11 +18,13 @@ export class LogTailer {
     private readonly state: ScoreboardState,
     private readonly onChange: ChangeHandler,
     private readonly logDir = process.env.FF_LOG_DIR || DEFAULT_LOG_DIR,
-    private readonly pollMs = 150
+    private readonly pollMs = 150,
+    private readonly onLog: LogHandler = () => undefined
   ) {}
 
   start(): void {
     if (this.timer) return;
+    this.onLog("Bắt đầu đọc log", "success");
     void this.tick();
     this.timer = setInterval(() => void this.tick(), this.pollMs);
   }
@@ -29,6 +32,15 @@ export class LogTailer {
   stop(): void {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+    this.onLog("Đã dừng đọc log", "warn");
+  }
+
+  isRunning(): boolean {
+    return Boolean(this.timer);
+  }
+
+  getCurrentLog(): string | null {
+    return this.currentLog;
   }
 
   getSelectedLog(): string | null {
@@ -40,6 +52,7 @@ export class LogTailer {
     if (nextLog === this.selectedLog) return;
 
     this.selectedLog = nextLog;
+    this.onLog(nextLog ? `Chọn log: ${nextLog}` : "Chuyển về tự động tìm log", "info");
     this.clearCurrentLog();
   }
 
@@ -48,6 +61,7 @@ export class LogTailer {
     this.offset = 0;
     this.partial = "";
     this.state.reset(null);
+    this.onLog("Đã tải lại bộ đọc log", "info");
     this.onChange();
   }
 
@@ -66,11 +80,13 @@ export class LogTailer {
         this.offset = 0;
         this.partial = "";
         this.state.reset(nextLog);
+        this.onLog(`Đang đọc file: ${nextLog}`, "success");
       }
 
       await this.readAppended(nextLog);
     } catch (error) {
       console.warn("Log tailer tick failed:", error);
+      this.onLog(`Lỗi đọc log: ${String(error)}`, "error");
     } finally {
       this.reading = false;
     }
@@ -83,6 +99,7 @@ export class LogTailer {
     this.offset = 0;
     this.partial = "";
     this.state.reset(null);
+    this.onLog("Không có file log đang hoạt động", "warn");
     this.onChange();
   }
 

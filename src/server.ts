@@ -1,4 +1,5 @@
 import express from "express";
+import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
@@ -20,9 +21,9 @@ import { DEFAULT_PORT } from "./defaults";
 import { isAbsoluteLogPath, isValidLogPath } from "./logPath";
 import { LogTailer } from "./logTailer";
 import { fetchAggregatedMatchStats, fetchMatchStats, normalizeMatchIds } from "./matchStats";
-import { publicDir, projectRoot } from "./paths";
+import { assetsDir, publicDir, teamsCsvPath } from "./paths";
 import { ScoreboardState } from "./scoreboard";
-import type { ManagedGroup, ManagedPlayer, OverlayConfig, PublicConfig, PublicState, TeamConfig } from "./types";
+import type { ManagedGroup, ManagedPlayer, OverlayConfig, PublicConfig, PublicLogEntry, PublicState, TeamConfig } from "./types";
 
 const app = express();
 const server = http.createServer(app);
@@ -35,9 +36,15 @@ let groups: ManagedGroup[] = [];
 let players: ManagedPlayer[] = [];
 let lastTeamsMtime = 0;
 let tailer: LogTailer | null = null;
+let currentListenerID: string | null = null;
+let logs: PublicLogEntry[] = [];
+let logCounter = 0;
+let teamsReloadTimer: NodeJS.Timeout | null = null;
+let isServerStarted = false;
+let activePort = 0;
 
 app.use(express.json({ limit: "64kb" }));
-app.use("/assets", express.static(path.join(projectRoot, "assets")));
+app.use("/assets", express.static(assetsDir));
 app.use(express.static(publicDir));
 
 function normalizeFilePath(value: unknown): string {
@@ -55,14 +62,42 @@ function publicConfig(): PublicConfig {
 }
 
 function publicState(): PublicState {
-  return state.toPublicState();
+  return {
+    ...state.toPublicState(),
+    logs
+  };
 }
 
-function publicLogSource(): { path: string | null; mode: "auto" | "file" } {
+function publicLogSource(): { path: string | null; mode: "auto" | "file"; running: boolean; currentPath: string | null } {
   const selectedPath = tailer?.getSelectedLog() || null;
   return {
     path: selectedPath,
-    mode: selectedPath ? "file" : "auto"
+    mode: selectedPath ? "file" : "auto",
+    running: Boolean(tailer?.isRunning()),
+    currentPath: tailer?.getCurrentLog() || null
+  };
+}
+
+function pushLog(
+  message: string,
+  level: PublicLogEntry["level"] = "info",
+  source: PublicLogEntry["source"] = "server"
+): void {
+  logs.push({
+    id: `${++logCounter}`,
+    timestamp: new Date().toISOString(),
+    source,
+    level,
+    message
+  });
+  logs = logs.slice(-300);
+}
+
+function publicListenerState() {
+  return {
+    listenerID: currentListenerID,
+    running: Boolean(tailer?.isRunning()),
+    logSource: publicLogSource()
   };
 }
 
@@ -87,8 +122,7 @@ function broadcast(type: "state" | "config"): void {
 }
 
 async function reloadTeamsIfChanged(force = false): Promise<void> {
-  const teamsPath = path.join(projectRoot, "config", "teams.csv");
-  const stat = await fs.promises.stat(teamsPath).catch(() => null);
+  const stat = await fs.promises.stat(teamsCsvPath).catch(() => null);
   const mtime = stat?.mtimeMs || 0;
   if (!force && mtime === lastTeamsMtime) return;
 
@@ -100,6 +134,19 @@ async function reloadTeamsIfChanged(force = false): Promise<void> {
 
 app.get("/api/state", (_request, response) => {
   response.json(publicState());
+});
+
+app.get("/api/health", (_request, response) => {
+  response.json({
+    status: "ok",
+    message: "Server đang chạy",
+    timestamp: new Date().toISOString(),
+    listener: publicListenerState()
+  });
+});
+
+app.get("/api/logs", (_request, response) => {
+  response.json(logs);
 });
 
 app.get("/api/config", (_request, response) => {
@@ -229,11 +276,91 @@ app.post("/api/log-source", async (request, response) => {
   response.json(publicLogSource());
 });
 
+app.post("/create-listener", async (request, response) => {
+  const filePath = normalizeFilePath(request.body?.filePath);
+  const selectedGroupId = String(request.body?.selectedGroupId || "").trim();
+
+  if (!filePath) {
+    response.status(400).json({ status: "error", message: "filePath là bắt buộc" });
+    return;
+  }
+  if (!isAbsoluteLogPath(filePath) || !isValidLogPath(filePath)) {
+    response.status(400).json({ status: "error", message: "filePath không hợp lệ" });
+    return;
+  }
+
+  if (Array.isArray(request.body?.groups)) {
+    groups = normalizeManagedGroups(request.body.groups);
+    await saveManagedGroups(groups);
+  }
+  const payloadPlayers = request.body?.global?.players ?? request.body?.players;
+  if (Array.isArray(payloadPlayers)) {
+    players = normalizeManagedPlayers(payloadPlayers);
+    await saveManagedPlayers(players);
+    state.setPlayerRoster(players);
+  }
+
+  const selectedGroup = selectedGroupId ? groups.find((group) => group.groupId === selectedGroupId) : groups[0];
+  currentListenerID = randomUUID();
+  tailer?.stop();
+  tailer?.useLogFile(filePath);
+  pushLog(`Tạo listener ${currentListenerID}`, "success");
+  broadcast("state");
+
+  response.json({
+    status: "ok",
+    message: "Tạo listener thành công",
+    listenerID: currentListenerID,
+    groupId: selectedGroup?.groupId || null,
+    matchIdCount: selectedGroup?.matches.length || 0,
+    teamNameCount: selectedGroup?.teamNames.length || 0
+  });
+});
+
+app.post("/start-listener", async (request, response) => {
+  const listenerID = String(request.body?.listenerID || "").trim();
+  if (!listenerID || listenerID !== currentListenerID) {
+    response.status(400).json({ status: "error", message: "listenerID không hợp lệ" });
+    return;
+  }
+
+  tailer?.start();
+  await tailer?.tick();
+  broadcast("state");
+  response.json({ status: "ok", message: "Đã start listener", ...publicListenerState() });
+});
+
+app.post("/stop-listener", (request, response) => {
+  const listenerID = String(request.body?.listenerID || "").trim();
+  if (!listenerID || listenerID !== currentListenerID) {
+    response.status(400).json({ status: "error", message: "listenerID không hợp lệ" });
+    return;
+  }
+
+  tailer?.stop();
+  broadcast("state");
+  response.json({ status: "ok", message: "Đã dừng listener", ...publicListenerState() });
+});
+
+app.post("/kill-listener", (request, response) => {
+  const listenerID = String(request.body?.listenerID || "").trim();
+  if (!listenerID || listenerID !== currentListenerID) {
+    response.status(400).json({ status: "error", message: "listenerID không hợp lệ" });
+    return;
+  }
+
+  tailer?.stop();
+  tailer?.useLogFile(null);
+  currentListenerID = null;
+  broadcast("state");
+  response.json({ status: "ok", message: "Đã hủy listener", ...publicListenerState() });
+});
+
 app.get("/", (_request, response) => {
   response.redirect("/overlay");
 });
 
-app.get(["/overlay", "/control"], (_request, response) => {
+app.get(["/overlay", "/control", "/winrate", "/eliminated", "/terminal", "/match-details"], (_request, response) => {
   response.sendFile(path.join(publicDir, "index.html"));
 });
 
@@ -248,13 +375,48 @@ wss.on("connection", (socket) => {
   );
 });
 
-async function main(): Promise<void> {
+export interface StartedServer {
+  port: number;
+  close: () => Promise<void>;
+}
+
+export async function stopServer(): Promise<void> {
+  tailer?.stop();
+  tailer = null;
+
+  if (teamsReloadTimer) {
+    clearInterval(teamsReloadTimer);
+    teamsReloadTimer = null;
+  }
+
+  for (const client of wss.clients) {
+    client.close();
+  }
+
+  if (!isServerStarted) return;
+
+  await new Promise<void>((resolve, reject) => {
+    server.close((error) => {
+      if (error) reject(error);
+      else resolve();
+    });
+  });
+
+  isServerStarted = false;
+  activePort = 0;
+}
+
+export async function startServer(port = Number(process.env.PORT || DEFAULT_PORT)): Promise<StartedServer> {
+  if (isServerStarted) {
+    return {
+      port: activePort,
+      close: stopServer
+    };
+  }
+
   const indexHtml = path.join(publicDir, "index.html");
   if (!fs.existsSync(indexHtml)) {
-    console.error(`Lỗi: không tìm thấy file build tại ${publicDir}`);
-    console.error("Chạy 'npm run build' trước, sau đó khởi động server.");
-    process.exitCode = 1;
-    return;
+    throw new Error(`Không tìm thấy file build tại ${publicDir}. Chạy 'npm run build' trước.`);
   }
 
   overlayConfig = await loadOverlayConfig();
@@ -263,18 +425,35 @@ async function main(): Promise<void> {
   await reloadTeamsIfChanged(true);
   state.setPlayerRoster(players.length > 0 ? players : await loadPlayerRoster());
 
-  tailer = new LogTailer(state, () => broadcast("state"));
-  tailer.start();
-  setInterval(() => void reloadTeamsIfChanged(), 1000);
-
-  const port = Number(process.env.PORT || DEFAULT_PORT);
-  server.listen(port, () => {
-    console.log(`Overlay OBS Free Fire đang chạy tại http://localhost:${port}/overlay`);
-    console.log(`Bảng điều khiển tại http://localhost:${port}/control`);
+  pushLog("Server khởi động", "success");
+  tailer = new LogTailer(state, () => broadcast("state"), undefined, undefined, (message, level = "info") => {
+    pushLog(message, level, "tailer");
+    broadcast("state");
   });
+  tailer.start();
+  teamsReloadTimer = setInterval(() => void reloadTeamsIfChanged(), 1000);
+
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(port, () => {
+      server.off("error", reject);
+      isServerStarted = true;
+      activePort = port;
+      console.log(`Overlay OBS Free Fire đang chạy tại http://localhost:${port}/overlay`);
+      console.log(`Bảng điều khiển tại http://localhost:${port}/control`);
+      resolve();
+    });
+  });
+
+  return {
+    port,
+    close: stopServer
+  };
 }
 
-void main().catch((error) => {
-  console.error(error);
-  process.exitCode = 1;
-});
+if (require.main === module) {
+  void startServer().catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  });
+}

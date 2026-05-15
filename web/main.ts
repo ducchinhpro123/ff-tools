@@ -16,17 +16,63 @@ interface TeamRow {
   players: number;
 }
 
-interface PublicEvent {
+interface WinRateRow {
+  rank: number;
+  teamId: number;
+  name: string;
+  shortName: string;
+  logoPath: string;
+  accentColor: string;
+  memberCount: number;
+  points: number;
+  winRate: number;
+  teamEliminated: boolean;
+}
+
+interface PublicEliminatedEvent {
   id: string;
-  type: "knockdown";
   timestamp: string | null;
   eventId: string | null;
-  downedId: string;
-  killerId: string;
-  downedName: string;
-  killerName: string;
-  downedTeam: string;
-  killerTeam: string;
+  teamId: number;
+  teamName: string;
+  shortName: string;
+  logoPath: string;
+  accentColor: string;
+  playerId: string;
+  originId: string;
+  playerName: string;
+  elims: number;
+  rank: number;
+  teamMateIds: string[];
+}
+
+interface PublicLogEntry {
+  id: string;
+  timestamp: string;
+  source: "server" | "tailer" | "raw";
+  level: "info" | "warn" | "error" | "success" | "debug";
+  message: string;
+}
+
+interface PublicEvent {
+  id: string;
+  type: "knockdown" | "dead" | "revive" | "team_eliminated";
+  timestamp: string | null;
+  eventId: string | null;
+  downedId?: string;
+  killerId?: string;
+  downedName?: string;
+  killerName?: string;
+  downedTeam?: string;
+  killerTeam?: string;
+  victimId?: string;
+  victimName?: string;
+  victimTeam?: string;
+  playerId?: string;
+  playerName?: string;
+  teamName?: string;
+  rank?: number;
+  elims?: number;
   message: string;
 }
 
@@ -35,6 +81,9 @@ interface PublicState {
   sourceLogUpdatedAt: string | null;
   matchEnded: boolean;
   events: PublicEvent[];
+  eliminatedEvents: PublicEliminatedEvent[];
+  winRates: WinRateRow[];
+  logs: PublicLogEntry[];
   teams: TeamRow[];
 }
 
@@ -107,6 +156,9 @@ let state: PublicState = {
   sourceLogUpdatedAt: null,
   matchEnded: false,
   events: [],
+  eliminatedEvents: [],
+  winRates: [],
+  logs: [],
   teams: []
 };
 
@@ -156,9 +208,16 @@ let overlayHasRendered = false;
 let animationPreviewKind: AnimationPreviewKind | null = null;
 let animationPreviewUntil = 0;
 let animationPreviewTimer: number | null = null;
+let matchDetailsLoadedFor = "";
+let matchDetailsHtml = "";
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
-const isControl = location.pathname === "/control";
+const pageMode = location.pathname.replace(/^\/+/, "") || "overlay";
+const isControl = pageMode === "control";
+const isWinRate = pageMode === "winrate";
+const isEliminated = pageMode === "eliminated";
+const isTerminal = pageMode === "terminal";
+const isMatchDetails = pageMode === "match-details";
 
 async function boot(): Promise<void> {
   const [stateResponse, configResponse, logSourceResponse, groupsResponse, playersResponse] = await Promise.all([
@@ -206,12 +265,22 @@ function connectSocket(): void {
 
 function render(): void {
   const oldPositions = captureRowPositions();
-  const shouldAnimateBoard = !isControl && !overlayHasRendered;
-  app.className = isControl ? "control-page" : "overlay-page";
-  app.innerHTML = isControl ? renderControl() : renderOverlay(shouldAnimateBoard);
-  if (!isControl) overlayHasRendered = true;
+  const shouldAnimateBoard = !isControl && !isTerminal && !isMatchDetails && !overlayHasRendered;
+  app.className = isControl || isTerminal || isMatchDetails ? "control-page" : "overlay-page";
+  app.innerHTML = renderCurrentPage(shouldAnimateBoard);
+  if (!isControl && !isTerminal && !isMatchDetails) overlayHasRendered = true;
   if (isControl) bindControlEvents();
+  if (isMatchDetails) bindMatchDetailsEvents();
   animateRowMoves(oldPositions);
+}
+
+function renderCurrentPage(shouldAnimateBoard: boolean): string {
+  if (isControl) return renderControl();
+  if (isWinRate) return renderWinRateOverlay(shouldAnimateBoard);
+  if (isEliminated) return renderEliminatedOverlay(shouldAnimateBoard);
+  if (isTerminal) return renderTerminalPage();
+  if (isMatchDetails) return renderMatchDetailsPage();
+  return renderOverlay(shouldAnimateBoard);
 }
 
 function captureRowPositions(): Map<number, DOMRect> {
@@ -363,6 +432,160 @@ function renderOverlay(animateBoard = false, animationPreview: AnimationPreviewK
   `;
 }
 
+function renderWinRateOverlay(animateBoard = false): string {
+  const c = normalizeOverlayClientConfig(config.overlay);
+  const rows = state.winRates.slice(0, c.rowCount);
+  const panelStyle = [
+    `--panel-width:${c.width}px`,
+    `--panel-scale:${c.scale}`,
+    `--row-height:${Math.max(44, c.rowHeight)}px`,
+    `--font-size:${c.fontSize}px`,
+    `--panel-opacity:${c.opacity}`,
+    `--row-opacity:${c.rowOpacity}`,
+    `--accent:${c.accentColor}`,
+    `--header:${c.headerColor}`,
+    `--panel:${c.panelColor}`,
+    `--text:${c.textColor}`,
+    `--muted:${c.mutedColor}`,
+    `--accent-rgb:${hexToRgbTriplet(c.accentColor)}`,
+    `--header-rgb:${hexToRgbTriplet(c.headerColor)}`,
+    `--panel-rgb:${hexToRgbTriplet(c.panelColor)}`,
+    `--text-rgb:${hexToRgbTriplet(c.textColor)}`,
+    `--muted-rgb:${hexToRgbTriplet(c.mutedColor)}`
+  ].join(";");
+
+  return `
+    <section class="scoreboard winrate-board ${animateBoard ? "board-enter" : ""}" style="${panelStyle}">
+      <div class="leaderboard-inner">
+        <header class="score-header winrate-header">
+          <span>#</span>
+          <span>TEAM</span>
+          <span>ALIVE</span>
+          <span>POINTS</span>
+          <span>WIN RATE</span>
+        </header>
+        <div class="winrate-rows">
+          ${rows.map(renderWinRateRow).join("") || `<div class="empty-overlay">WAITING FOR LIVE DATA</div>`}
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function renderWinRateRow(row: WinRateRow): string {
+  return `
+    <article class="winrate-row ${row.teamEliminated ? "is-out" : ""}" style="--team-accent:${row.accentColor}">
+      <span class="wr-rank">#${row.rank}</span>
+      <span class="wr-team">
+        ${row.logoPath ? `<img src="${escapeHtml(row.logoPath)}" alt="" />` : `<i>${escapeHtml(row.shortName.slice(0, 2))}</i>`}
+        <strong>${escapeHtml(row.shortName)}</strong>
+      </span>
+      <span>${row.memberCount}</span>
+      <span>${row.points}</span>
+      <span class="wr-percent">${row.winRate.toFixed(2)}%</span>
+    </article>
+  `;
+}
+
+function renderEliminatedOverlay(animateBoard = false): string {
+  const c = normalizeOverlayClientConfig(config.overlay);
+  const events = state.eliminatedEvents.slice(0, c.rowCount);
+  const panelStyle = [
+    `--panel-width:${c.width}px`,
+    `--panel-scale:${c.scale}`,
+    `--font-size:${c.fontSize}px`,
+    `--panel-opacity:${c.opacity}`,
+    `--row-opacity:${c.rowOpacity}`,
+    `--accent:${c.accentColor}`,
+    `--header:${c.headerColor}`,
+    `--panel:${c.panelColor}`,
+    `--text:${c.textColor}`,
+    `--muted:${c.mutedColor}`,
+    `--accent-rgb:${hexToRgbTriplet(c.accentColor)}`,
+    `--header-rgb:${hexToRgbTriplet(c.headerColor)}`,
+    `--panel-rgb:${hexToRgbTriplet(c.panelColor)}`,
+    `--text-rgb:${hexToRgbTriplet(c.textColor)}`,
+    `--muted-rgb:${hexToRgbTriplet(c.mutedColor)}`
+  ].join(";");
+
+  return `
+    <section class="scoreboard eliminated-board ${animateBoard ? "board-enter" : ""}" style="${panelStyle}">
+      <div class="leaderboard-inner">
+        <header class="eliminated-title">ELIMINATED</header>
+        <div class="eliminated-list">
+          ${events.map(renderEliminatedCard).join("") || `<div class="empty-overlay">NO TEAM ELIMINATED</div>`}
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function renderEliminatedCard(event: PublicEliminatedEvent): string {
+  return `
+    <article class="eliminated-card" style="--team-accent:${event.accentColor}">
+      <div class="elim-logo">
+        ${event.logoPath ? `<img src="${escapeHtml(event.logoPath)}" alt="" />` : `<span>${escapeHtml(event.shortName.slice(0, 2))}</span>`}
+      </div>
+      <div class="elim-data">
+        <strong>${escapeHtml(event.teamName)}</strong>
+        <span>${escapeHtml(event.playerName)} / ${event.elims} ELIMS</span>
+      </div>
+      <div class="elim-rank">#${event.rank}</div>
+    </article>
+  `;
+}
+
+function renderTerminalPage(): string {
+  const entries = state.logs.slice(-180);
+  return `
+    <section class="tool-page terminal-page">
+      <header class="tool-head">
+        <div>
+          <span class="eyebrow">Log</span>
+          <h1>Terminal</h1>
+        </div>
+        <a href="/control">Điều khiển</a>
+      </header>
+      <div class="terminal-output">
+        ${entries.map(renderTerminalLine).join("") || `<div class="terminal-line level-warn"><span>Chưa có log.</span></div>`}
+      </div>
+    </section>
+  `;
+}
+
+function renderTerminalLine(entry: PublicLogEntry): string {
+  return `
+    <div class="terminal-line level-${entry.level}">
+      <span>[${escapeHtml(new Date(entry.timestamp).toLocaleTimeString())}]</span>
+      <span>[${escapeHtml(entry.source)}]</span>
+      <span>[${escapeHtml(entry.level.toUpperCase())}]</span>
+      <strong>${escapeHtml(entry.message)}</strong>
+    </div>
+  `;
+}
+
+function renderMatchDetailsPage(): string {
+  const matchId = new URLSearchParams(location.search).get("matchId") || "";
+  return `
+    <section class="tool-page match-page">
+      <header class="tool-head">
+        <div>
+          <span class="eyebrow">Stats</span>
+          <h1>Match Details</h1>
+        </div>
+        <a href="/control">Điều khiển</a>
+      </header>
+      <form class="match-details-form" data-match-details-form>
+        <input name="matchId" value="${escapeHtml(matchId)}" placeholder="Match ID" required />
+        <button type="submit">Load</button>
+      </form>
+      <div class="match-details-body" data-match-details-body>
+        ${matchId ? matchDetailsHtml || "Loading..." : "Nhập Match ID để xem thông tin trận."}
+      </div>
+    </section>
+  `;
+}
+
 function renderEventFeed(): string {
   const events = (state.events || []).slice(0, 3);
   if (events.length === 0) return "";
@@ -373,16 +596,40 @@ function renderEventFeed(): string {
         .map(
           (event) => `
             <article class="event-item event-${event.type}" title="${escapeAttribute(event.message)}">
-              <span class="event-tag">KNOCK DOWN</span>
-              <span class="event-killer">${formatEventName(event.killerName, event.killerTeam)}</span>
+              <span class="event-tag">${eventLabel(event)}</span>
+              <span class="event-killer">${formatEventName(eventPrimaryName(event), eventPrimaryTeam(event))}</span>
               <span class="event-arrow">></span>
-              <span class="event-downed">${formatEventName(event.downedName, event.downedTeam)}</span>
+              <span class="event-downed">${formatEventName(eventSecondaryName(event), eventSecondaryTeam(event))}</span>
             </article>
           `
         )
         .join("")}
     </div>
   `;
+}
+
+function eventLabel(event: PublicEvent): string {
+  if (event.type === "dead") return "ELIM";
+  if (event.type === "revive") return "REVIVE";
+  if (event.type === "team_eliminated") return "TEAM OUT";
+  return "KNOCK DOWN";
+}
+
+function eventPrimaryName(event: PublicEvent): string {
+  return event.killerName || event.playerName || event.teamName || "";
+}
+
+function eventPrimaryTeam(event: PublicEvent): string {
+  return event.killerTeam || event.teamName || "";
+}
+
+function eventSecondaryName(event: PublicEvent): string {
+  if (event.type === "team_eliminated") return event.rank ? `#${event.rank}` : "";
+  return event.downedName || event.victimName || "";
+}
+
+function eventSecondaryTeam(event: PublicEvent): string {
+  return event.downedTeam || event.victimTeam || "";
 }
 
 function formatEventName(name: string, teamName: string): string {
@@ -500,6 +747,10 @@ function renderControl(): string {
         ${activeControlTab === "players" ? renderPlayerManager() : ""}
         <div class="control-actions">
           <a href="/overlay" target="_blank">Mở lớp phủ</a>
+          <a href="/winrate" target="_blank">Winrate</a>
+          <a href="/eliminated" target="_blank">Eliminated</a>
+          <a href="/terminal" target="_blank">Terminal</a>
+          <a href="/match-details" target="_blank">Match details</a>
           <span>${state.sourceLog ? escapeHtml(state.sourceLog.split(/[\\/]/).pop() || "") : "Đang chờ log"}</span>
         </div>
       </div>
@@ -666,6 +917,104 @@ function bindControlEvents(): void {
 
   bindGroupManagerEvents();
   bindPlayerManagerEvents();
+}
+
+function bindMatchDetailsEvents(): void {
+  const form = app.querySelector<HTMLFormElement>("[data-match-details-form]");
+  const body = app.querySelector<HTMLElement>("[data-match-details-body]");
+  const matchId = new URLSearchParams(location.search).get("matchId") || "";
+
+  form?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const formData = new FormData(form);
+    const nextMatchId = String(formData.get("matchId") || "").trim();
+    if (!nextMatchId) return;
+    history.replaceState(null, "", `/match-details?matchId=${encodeURIComponent(nextMatchId)}`);
+    matchDetailsLoadedFor = "";
+    matchDetailsHtml = "";
+    void loadMatchDetails(nextMatchId, body);
+  });
+
+  if (matchId && matchDetailsLoadedFor !== matchId) {
+    void loadMatchDetails(matchId, body);
+  }
+}
+
+async function loadMatchDetails(matchId: string, target: HTMLElement | null): Promise<void> {
+  if (target) target.textContent = "Loading...";
+  matchDetailsLoadedFor = matchId;
+
+  try {
+    const response = await fetch(`/api/match-stats?matchId=${encodeURIComponent(matchId)}`);
+    const payload = await response.json();
+    if (!response.ok || payload.status === "error") {
+      throw new Error(payload.message || `HTTP ${response.status}`);
+    }
+
+    matchDetailsHtml = renderMatchStatsPayload(payload);
+    if (target) target.innerHTML = matchDetailsHtml;
+  } catch (error) {
+    matchDetailsHtml = `<div class="empty-note">${escapeHtml(error instanceof Error ? error.message : "Không thể tải dữ liệu trận")}</div>`;
+    if (target) target.innerHTML = matchDetailsHtml;
+  }
+}
+
+function renderMatchStatsPayload(payload: unknown): string {
+  const data = normalizeMatchStatsPayload(payload);
+  const teams = flattenTeamStats(data).sort((a, b) => Number(a.match_rank || 999) - Number(b.match_rank || 999));
+  const matchInfo = Array.isArray(data.match_info) ? data.match_info[0] : null;
+
+  return `
+    <div class="match-summary-grid">
+      <div><span>Match</span><strong>${escapeHtml(String(matchInfo?.match_id || ""))}</strong></div>
+      <div><span>Teams</span><strong>${teams.length}</strong></div>
+      <div><span>Players</span><strong>${teams.reduce((sum, team) => sum + (Array.isArray(team.player_data) ? team.player_data.length : 0), 0)}</strong></div>
+    </div>
+    <div class="match-team-list">
+      ${teams.map(renderMatchTeamCard).join("") || `<div class="empty-note">Không có dữ liệu team.</div>`}
+    </div>
+  `;
+}
+
+function normalizeMatchStatsPayload(payload: unknown): Record<string, any> {
+  const raw = payload as Record<string, any>;
+  const level1 = raw?.data;
+  const level2 = level1?.data;
+  if (level2 && (level2.match_info || level2.team_stats || level2.total_stats)) return level2;
+  if (level1 && (level1.match_info || level1.team_stats || level1.total_stats)) return level1;
+  return raw || {};
+}
+
+function flattenTeamStats(data: Record<string, any>): Array<Record<string, any>> {
+  if (Array.isArray(data.total_stats)) return data.total_stats;
+  if (Array.isArray(data.team_stats)) {
+    return data.team_stats.flatMap((match: Record<string, any>) => (Array.isArray(match.team_stats) ? match.team_stats : []));
+  }
+  return [];
+}
+
+function renderMatchTeamCard(team: Record<string, any>): string {
+  const players = Array.isArray(team.player_data) ? team.player_data : [];
+  return `
+    <article class="match-team-card">
+      <header>
+        <strong>#${escapeHtml(String(team.match_rank || "-"))} ${escapeHtml(String(team.team_name || "Unknown"))}</strong>
+        <span>${Number(team.total_score || 0)} PTS / ${Number(team.kills || 0)} KILLS</span>
+      </header>
+      <div class="match-player-grid">
+        ${players
+          .map(
+            (player: Record<string, any>) => `
+              <div>
+                <strong>${escapeHtml(String(player.player_name || player.player_id || "Player"))}</strong>
+                <span>${Number(player.kills || 0)} K / ${Number(player.damage || 0)} DMG / ${Number(player.knock_down || 0)} KD</span>
+              </div>
+            `
+          )
+          .join("")}
+      </div>
+    </article>
+  `;
 }
 
 function currentAnimationPreviewKind(): AnimationPreviewKind | null {

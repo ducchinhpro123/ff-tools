@@ -376,13 +376,44 @@ test("marks team eliminated from isTeamLastKill event", () => {
     "[UIModelSpectator] AddPlayer id401,nameOne,gsTeam4",
     "[UIModelSpectator] AddPlayer id402,nameTwo,gsTeam4",
     "[2026-05-13 06:48:00.614][1][18162] Player 401 Dead, killed by 999",
-    "[2026-05-13 06:48:00.614][1][18162] Event data isTeamLastKill: True"
+    "[2026-05-13 06:48:00.614][1][18162] Event data isTeamLastKill: True",
+    "[2026-05-13 06:48:00.615][1][18162] Event data isTeamLastKill: True"
   ].forEach((line) => state.consumeLine(line));
 
   const row = state.toPublicState().teams[0];
   assert.equal(row.teamEliminated, true);
   assert.equal(row.alive, 0);
   assert.equal(row.eliminated, 2);
+  const eliminated = state.toPublicState().eliminatedEvents[0];
+  assert.equal(state.toPublicState().eliminatedEvents.length, 1);
+  assert.equal(eliminated.teamName, "DK");
+  assert.equal(eliminated.rank, 1);
+  assert.deepEqual(eliminated.teamMateIds, ["401", "402"]);
+  assert.equal(state.toPublicState().events[0].type, "team_eliminated");
+});
+
+test("calculates win rate from alive players and live points", () => {
+  const state = new ScoreboardState();
+
+  [
+    "OnTeamScoreInited -> TeamName: Alpha TeamID: 1",
+    "OnTeamScoreInited -> TeamName: Beta TeamID: 2",
+    "[UIModelSpectator] AddPlayer id101,nameA1,gsTeam1",
+    "[UIModelSpectator] AddPlayer id102,nameA2,gsTeam1",
+    "[UIModelSpectator] AddPlayer id103,nameA3,gsTeam1",
+    "[UIModelSpectator] AddPlayer id104,nameA4,gsTeam1",
+    "[UIModelSpectator] AddPlayer id201,nameB1,gsTeam2",
+    "[UIModelSpectator] AddPlayer id202,nameB2,gsTeam2",
+    "OnTeamScoreChanged -> TeamID: 1 TeamScore: 10",
+    "OnTeamScoreChanged -> TeamID: 2 TeamScore: 0"
+  ].forEach((line) => state.consumeLine(line));
+
+  const rates = state.toPublicState().winRates;
+  assert.equal(rates[0].name, "Alpha");
+  assert.equal(rates[0].winRate, 88.89);
+  assert.equal(rates[1].name, "Beta");
+  assert.equal(rates[1].winRate, 11.11);
+  assert.equal(Number(rates.reduce((sum, row) => sum + row.winRate, 0).toFixed(2)), 100);
 });
 
 test("uses roster player IDs from Player Join to resolve team names and team IDs", () => {

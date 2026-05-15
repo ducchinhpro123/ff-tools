@@ -1,5 +1,6 @@
 node_modules/
 dist/
+release/
 server.out.log
 server.err.log
 npm-debug.log*

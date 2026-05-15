@@ -79,17 +79,63 @@ export interface TeamRow {
   players: number;
 }
 
-export interface PublicEvent {
+export interface WinRateRow {
+  rank: number;
+  teamId: number;
+  name: string;
+  shortName: string;
+  logoPath: string;
+  accentColor: string;
+  memberCount: number;
+  points: number;
+  winRate: number;
+  teamEliminated: boolean;
+}
+
+export interface PublicEliminatedEvent {
   id: string;
-  type: "knockdown";
   timestamp: string | null;
   eventId: string | null;
-  downedId: string;
-  killerId: string;
-  downedName: string;
-  killerName: string;
-  downedTeam: string;
-  killerTeam: string;
+  teamId: number;
+  teamName: string;
+  shortName: string;
+  logoPath: string;
+  accentColor: string;
+  playerId: string;
+  originId: string;
+  playerName: string;
+  elims: number;
+  rank: number;
+  teamMateIds: string[];
+}
+
+export interface PublicLogEntry {
+  id: string;
+  timestamp: string;
+  source: "server" | "tailer" | "raw";
+  level: "info" | "warn" | "error" | "success" | "debug";
+  message: string;
+}
+
+export interface PublicEvent {
+  id: string;
+  type: "knockdown" | "dead" | "revive" | "team_eliminated";
+  timestamp: string | null;
+  eventId: string | null;
+  downedId?: string;
+  killerId?: string;
+  downedName?: string;
+  killerName?: string;
+  downedTeam?: string;
+  killerTeam?: string;
+  victimId?: string;
+  victimName?: string;
+  victimTeam?: string;
+  playerId?: string;
+  playerName?: string;
+  teamName?: string;
+  rank?: number;
+  elims?: number;
   message: string;
 }
 
@@ -98,6 +144,9 @@ export interface PublicState {
   sourceLogUpdatedAt: string | null;
   matchEnded: boolean;
   events: PublicEvent[];
+  eliminatedEvents: PublicEliminatedEvent[];
+  winRates: WinRateRow[];
+  logs: PublicLogEntry[];
   teams: TeamRow[];
 }
 

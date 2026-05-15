@@ -215,5 +215,6 @@ export function normalizeOverlayConfig(input: Partial<OverlayConfig>): OverlayCo
 }
 
 export async function saveOverlayConfig(config: OverlayConfig): Promise<void> {
+  await fs.mkdir(path.dirname(overlayConfigPath), { recursive: true });
   await fs.writeFile(overlayConfigPath, `${JSON.stringify(normalizeOverlayConfig(config), null, 2)}\n`, "utf8");
 }
