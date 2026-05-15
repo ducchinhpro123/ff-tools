@@ -180,6 +180,43 @@ test("marks match end", () => {
   assert.equal(state.toPublicState().matchEnded, true);
 });
 
+test("publishes knockdown events from combat log lines", () => {
+  const state = new ScoreboardState();
+  state.setPlayerRoster([
+    {
+      teamName: "LQTA",
+      playerId: "4579338001",
+      playerName: "LQTA.KILLER"
+    },
+    {
+      teamName: "EVLG",
+      playerId: "4579338002",
+      playerName: "EVLG.DOWNED"
+    }
+  ]);
+
+  [
+    "[2026-05-14 09:39:53.900][1][21545] Player Join, 4579338001, 33554465, LQTA.KILLER,False10",
+    "[2026-05-14 09:39:53.910][1][21545] Player Join, 4579338002, 50331651, EVLG.DOWNED,False10",
+    "[UIModelSpectator] AddPlayer id33554465,nameLQTA.KILLER,gsTeam1",
+    "[UIModelSpectator] AddPlayer id50331651,nameEVLG.DOWNED,gsTeam2",
+    "[2026-05-14 09:39:53.970][1][21545] Player '50331651' Knock Down, by '33554465'",
+    "[2026-05-14 09:39:53.980][1][21545] Teammate 50331651 Knock Down"
+  ].forEach((line) => state.consumeLine(line));
+
+  const events = state.toPublicState().events;
+  assert.equal(events.length, 1);
+  assert.equal(events[0].type, "knockdown");
+  assert.equal(events[0].eventId, "21545");
+  assert.equal(events[0].timestamp, "2026-05-14 09:39:53.970");
+  assert.equal(events[0].downedId, "50331651");
+  assert.equal(events[0].killerId, "33554465");
+  assert.equal(events[0].downedName, "EVLG.DOWNED");
+  assert.equal(events[0].killerName, "LQTA.KILLER");
+  assert.equal(events[0].downedTeam, "EVLG");
+  assert.equal(events[0].killerTeam, "LQTA");
+});
+
 test("uses latest game score order to break ties", () => {
   const state = new ScoreboardState();
 
@@ -198,6 +235,114 @@ test("uses latest game score order to break ties", () => {
     state.toPublicState().teams.map((team) => team.teamId),
     [7, 9, 5, 10]
   );
+});
+
+test("applies match stats totals as base points and keeps live score additive", () => {
+  const state = new ScoreboardState();
+  state.setTeamConfig([
+    {
+      teamId: 1,
+      shortName: "AAA",
+      displayName: "Alpha",
+      basePoints: 0,
+      logoPath: "",
+      accentColor: "#ff007a"
+    },
+    {
+      teamId: 2,
+      shortName: "BBB",
+      displayName: "Beta",
+      basePoints: 0,
+      logoPath: "",
+      accentColor: "#00aaff"
+    }
+  ]);
+  state.setMatchStatsBase([
+    {
+      teamName: "Alpha",
+      teamId: 1,
+      totalScore: 20,
+      elims: 7,
+      rankPoint: 13,
+      matchCount: 2
+    },
+    {
+      teamName: "Beta",
+      teamId: 2,
+      totalScore: 12,
+      elims: 4,
+      rankPoint: 8,
+      matchCount: 2
+    }
+  ]);
+
+  assert.deepEqual(
+    state.toPublicState().teams.map((team) => [team.shortName, team.totalPoints]),
+    [
+      ["AAA", 20],
+      ["BBB", 12]
+    ]
+  );
+
+  state.consumeLine("OnTeamScoreInited -> TeamName: Alpha TeamID: 1");
+  state.consumeLine("OnTeamScoreChanged -> TeamID: 1 TeamScore: 5");
+
+  const alpha = state.toPublicState().teams.find((team) => team.shortName === "AAA");
+  assert.equal(alpha?.basePoints, 20);
+  assert.equal(alpha?.liveScore, 5);
+  assert.equal(alpha?.totalPoints, 25);
+});
+
+test("uses historical elims and rank points to break tied match stats totals", () => {
+  const state = new ScoreboardState();
+  state.setMatchStatsBase([
+    {
+      teamName: "Alpha",
+      teamId: 1,
+      totalScore: 20,
+      elims: 5,
+      rankPoint: 10,
+      matchCount: 2
+    },
+    {
+      teamName: "Beta",
+      teamId: 2,
+      totalScore: 20,
+      elims: 7,
+      rankPoint: 8,
+      matchCount: 2
+    },
+    {
+      teamName: "Gamma",
+      teamId: 3,
+      totalScore: 20,
+      elims: 7,
+      rankPoint: 12,
+      matchCount: 2
+    }
+  ]);
+
+  assert.deepEqual(
+    state.toPublicState().teams.map((team) => team.name),
+    ["Gamma", "Beta", "Alpha"]
+  );
+});
+
+test("caps public alive slots to four players", () => {
+  const state = new ScoreboardState();
+
+  [
+    "OnTeamScoreInited -> TeamName: Alpha TeamID: 1",
+    "[UIModelSpectator] AddPlayer id101,nameOne,gsTeam1",
+    "[UIModelSpectator] AddPlayer id102,nameTwo,gsTeam1",
+    "[UIModelSpectator] AddPlayer id103,nameThree,gsTeam1",
+    "[UIModelSpectator] AddPlayer id104,nameFour,gsTeam1",
+    "[UIModelSpectator] AddPlayer id105,nameFive,gsTeam1"
+  ].forEach((line) => state.consumeLine(line));
+
+  const row = state.toPublicState().teams[0];
+  assert.equal(row.alive, 4);
+  assert.equal(row.players, 4);
 });
 
 test("maps player gsTeam to scoreboard TeamID for alive counts", () => {

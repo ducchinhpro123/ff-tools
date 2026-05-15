@@ -1,5 +1,5 @@
 import { assetUrl } from "./paths";
-import type { PlayerRosterEntry, PublicState, TeamConfig, TeamRow } from "./types";
+import type { MatchStatsBaseTeam, PlayerRosterEntry, PublicEvent, PublicState, TeamConfig, TeamRow } from "./types";
 
 interface TeamInternal {
   teamId: number;
@@ -21,6 +21,8 @@ interface PlayerInternal {
 
 interface SortableTeamRow extends TeamRow {
   scoreOrder: number;
+  historicalElims: number;
+  historicalRankPoint: number;
 }
 
 export class ScoreboardState {
@@ -31,6 +33,7 @@ export class ScoreboardState {
   private playerRoster = new Map<string, PlayerRosterEntry>();
   private teamConfigs: TeamConfig[] = [];
   private teamConfig = new Map<number, TeamConfig>();
+  private matchStatsBase = new Map<string, MatchStatsBaseTeam>();
   private sourceToScoreTeam = new Map<number, number>();
   private sourceScoreVotes = new Map<number, Map<number, number>>();
   private currentEventId: string | null = null;
@@ -38,6 +41,8 @@ export class ScoreboardState {
   private eventScoreIncreases = new Set<number>();
   private lastDeadPlayerByEvent = new Map<string, string>();
   private eliminatedTeamIds = new Set<number>();
+  private events: PublicEvent[] = [];
+  private eventCounter = 0;
   private scoreOrderCounter = 0;
   sourceLog: string | null = null;
   sourceLogUpdatedAt: string | null = null;
@@ -55,6 +60,8 @@ export class ScoreboardState {
     this.eventScoreIncreases.clear();
     this.lastDeadPlayerByEvent.clear();
     this.eliminatedTeamIds.clear();
+    this.events = [];
+    this.eventCounter = 0;
     this.scoreOrderCounter = 0;
     this.sourceLog = sourceLog;
     this.sourceLogUpdatedAt = null;
@@ -68,6 +75,28 @@ export class ScoreboardState {
 
   setPlayerRoster(players: PlayerRosterEntry[]): void {
     this.playerRoster = new Map(players.map((player) => [player.playerId, player]));
+  }
+
+  setMatchStatsBase(teams: MatchStatsBaseTeam[]): void {
+    this.matchStatsBase.clear();
+
+    for (const team of teams) {
+      const teamName = String(team.teamName || "").trim();
+      if (!teamName) continue;
+
+      const key = this.normalizeTeamName(teamName);
+      const existing = this.matchStatsBase.get(key);
+      if (existing) {
+        existing.totalScore += team.totalScore;
+        existing.elims += team.elims;
+        existing.rankPoint += team.rankPoint;
+        existing.matchCount += team.matchCount;
+        if (existing.teamId === null) existing.teamId = team.teamId;
+        continue;
+      }
+
+      this.matchStatsBase.set(key, { ...team, teamName });
+    }
   }
 
   consumeLine(line: string): boolean {
@@ -110,6 +139,12 @@ export class ScoreboardState {
         this.players.set(playerId, player);
         this.ensureTeam(teamId).playerIds.add(playerId);
       }
+      return true;
+    }
+
+    const knockdown = line.match(/Player '(\d+)' Knock Down, by '(\d+)'/);
+    if (knockdown) {
+      this.addKnockdownEvent(line, knockdown[1], knockdown[2]);
       return true;
     }
 
@@ -203,9 +238,22 @@ export class ScoreboardState {
 
   toPublicState(): PublicState {
     const rows = Array.from(this.teams.values()).map((team) => this.toRow(team));
+    const seenHistoricalTeams = new Set(
+      rows.flatMap((row) => [this.normalizeTeamName(row.name), this.normalizeTeamName(row.shortName)].filter(Boolean))
+    );
+
+    for (const historicalTeam of this.matchStatsBase.values()) {
+      const key = this.normalizeTeamName(historicalTeam.teamName);
+      if (!key || seenHistoricalTeams.has(key)) continue;
+      rows.push(this.toHistoricalRow(historicalTeam));
+      seenHistoricalTeams.add(key);
+    }
+
     rows.sort((a, b) => {
       return (
         b.totalPoints - a.totalPoints ||
+        b.historicalElims - a.historicalElims ||
+        b.historicalRankPoint - a.historicalRankPoint ||
         b.liveScore - a.liveScore ||
         a.scoreOrder - b.scoreOrder ||
         b.alive - a.alive ||
@@ -217,14 +265,58 @@ export class ScoreboardState {
       row.rank = index + 1;
     });
 
-    const publicRows = rows.map(({ scoreOrder: _scoreOrder, ...row }) => row);
+    const publicRows = rows.map(
+      ({ scoreOrder: _scoreOrder, historicalElims: _historicalElims, historicalRankPoint: _historicalRankPoint, ...row }) => row
+    );
 
     return {
       sourceLog: this.sourceLog,
       sourceLogUpdatedAt: this.sourceLogUpdatedAt,
       matchEnded: this.matchEnded,
+      events: this.events,
       teams: publicRows
     };
+  }
+
+  private addKnockdownEvent(line: string, downedId: string, killerId: string): void {
+    const downed = this.playerInfo(downedId);
+    const killer = this.playerInfo(killerId);
+    const timestamp = line.match(/^\[([^\]]+)\]/)?.[1] || null;
+
+    this.events.unshift({
+      id: `${++this.eventCounter}`,
+      type: "knockdown",
+      timestamp,
+      eventId: this.currentEventId,
+      downedId,
+      killerId,
+      downedName: downed.name,
+      killerName: killer.name,
+      downedTeam: downed.teamName,
+      killerTeam: killer.teamName,
+      message: `${killer.name} knocked ${downed.name}`
+    });
+
+    this.events = this.events.slice(0, 8);
+  }
+
+  private playerInfo(playerId: string): { name: string; teamName: string } {
+    const player = this.players.get(playerId);
+    const origin = this.playerOrigins.get(playerId);
+    const originPlayerId = player?.originPlayerId || origin?.originPlayerId || playerId;
+    const roster = this.playerRoster.get(originPlayerId);
+    const teamName = player?.rosterTeamName || roster?.teamName || this.teamNameForPlayer(player) || "";
+    const name = player?.name || origin?.name || roster?.playerName || `ID ${originPlayerId}`;
+
+    return { name, teamName };
+  }
+
+  private teamNameForPlayer(player: PlayerInternal | undefined): string {
+    if (!player) return "";
+    const scoreTeamId = this.scoreTeamForPlayer(player);
+    const team = scoreTeamId ? this.teams.get(scoreTeamId) : undefined;
+    const config = scoreTeamId ? this.teamConfig.get(scoreTeamId) : undefined;
+    return team?.logName || config?.displayName || config?.shortName || "";
   }
 
   private updateCurrentEvent(line: string): void {
@@ -288,13 +380,16 @@ export class ScoreboardState {
       return this.scoreTeamForPlayer(player) === team.teamId;
     });
     const rosterConfig = this.findRosterConfigForPlayers(players);
-    const teamEliminated = this.eliminatedTeamIds.has(team.teamId);
-    const alive = teamEliminated ? 0 : players.filter((player) => player.alive).length;
-    const eliminated = Math.max(0, players.length - alive);
     const rosterName = this.rosterNameForPlayers(players);
+    const historical = this.findHistoricalForTeam(team, config, rosterConfig, rosterName);
+    const teamEliminated = this.eliminatedTeamIds.has(team.teamId);
+    const rawAlive = teamEliminated ? 0 : players.filter((player) => player.alive).length;
+    const alive = Math.min(4, rawAlive);
+    const playerCount = Math.min(4, Math.max(players.length, rawAlive));
+    const eliminated = Math.max(0, playerCount - alive);
     const name = rosterConfig?.displayName || rosterName || team.logName || config?.displayName || `Team ${team.teamId}`;
     const shortName = rosterConfig?.shortName || rosterName || config?.shortName || this.shortNameFrom(name);
-    const basePoints = rosterConfig?.basePoints ?? config?.basePoints ?? 0;
+    const basePoints = historical?.totalScore ?? rosterConfig?.basePoints ?? config?.basePoints ?? 0;
 
     return {
       rank: 0,
@@ -306,11 +401,38 @@ export class ScoreboardState {
       basePoints,
       liveScore: team.liveScore,
       totalPoints: basePoints + team.liveScore,
-      teamEliminated: teamEliminated || (players.length > 0 && alive === 0),
+      teamEliminated: teamEliminated || (playerCount > 0 && alive === 0),
       scoreOrder: team.scoreOrder,
+      historicalElims: historical?.elims ?? 0,
+      historicalRankPoint: historical?.rankPoint ?? 0,
       alive,
       eliminated,
-      players: players.length
+      players: playerCount
+    };
+  }
+
+  private toHistoricalRow(team: MatchStatsBaseTeam): SortableTeamRow {
+    const config = this.findConfigByName(team.teamName);
+    const name = config?.displayName || team.teamName;
+    const shortName = config?.shortName || this.shortNameFrom(name);
+
+    return {
+      rank: 0,
+      teamId: config?.teamId || team.teamId || this.syntheticTeamId(team.teamName),
+      name,
+      shortName,
+      logoPath: assetUrl(config?.logoPath || ""),
+      accentColor: config?.accentColor || "#ff3b30",
+      basePoints: team.totalScore,
+      liveScore: 0,
+      totalPoints: team.totalScore,
+      teamEliminated: false,
+      scoreOrder: Number.MAX_SAFE_INTEGER,
+      historicalElims: team.elims,
+      historicalRankPoint: team.rankPoint,
+      alive: 0,
+      eliminated: 0,
+      players: 0
     };
   }
 
@@ -370,22 +492,55 @@ export class ScoreboardState {
     });
   }
 
+  private findHistoricalForTeam(
+    team: TeamInternal,
+    config: TeamConfig | undefined,
+    rosterConfig: TeamConfig | undefined,
+    rosterName: string
+  ): MatchStatsBaseTeam | undefined {
+    const candidates = [
+      team.logName,
+      rosterName,
+      config?.displayName,
+      config?.shortName,
+      rosterConfig?.displayName,
+      rosterConfig?.shortName
+    ];
+
+    for (const candidate of candidates) {
+      const key = this.normalizeTeamName(String(candidate || ""));
+      const historical = key ? this.matchStatsBase.get(key) : undefined;
+      if (historical) return historical;
+    }
+
+    return undefined;
+  }
+
   private findConfigForTeam(team: TeamInternal): TeamConfig | undefined {
     if (team.logName) {
       const normalizedLogName = this.normalizeTeamName(team.logName);
-      const byName = this.teamConfigs.find((config) => {
-        return this.normalizeTeamName(config.displayName) === normalizedLogName;
-      });
+      const byName = this.findConfigByName(normalizedLogName);
       return byName;
     }
 
     return this.teamConfig.get(team.teamId);
   }
 
+  private findConfigByName(teamName: string): TeamConfig | undefined {
+    const normalized = this.normalizeTeamName(teamName);
+    return this.teamConfigs.find((config) => {
+      return (
+        this.normalizeTeamName(config.displayName) === normalized ||
+        this.normalizeTeamName(config.shortName) === normalized
+      );
+    });
+  }
+
   private normalizeTeamName(name: string): string {
     return name
       .normalize("NFD")
       .replace(/[\u0300-\u036f]/g, "")
+      .replace(/đ/gi, "d")
       .replace(/[^\p{L}\p{N}]+/gu, "")
       .toUpperCase();
   }
@@ -403,5 +558,13 @@ export class ScoreboardState {
       .map((word) => word[0])
       .join("")
       .toUpperCase();
+  }
+
+  private syntheticTeamId(teamName: string): number {
+    let hash = 0;
+    for (const character of teamName) {
+      hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
+    }
+    return -1 * (hash || 1);
   }
 }

@@ -11,6 +11,7 @@ export const DEFAULT_OVERLAY_CONFIG: OverlayConfig = {
   fontSize: 16,
   rowHeight: 54,
   opacity: 1,
+  rowOpacity: 1,
   accentColor: "#ff3b30",
   headerColor: "#ff9d1e",
   panelColor: "#1c1d23",

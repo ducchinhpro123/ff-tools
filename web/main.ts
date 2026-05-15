@@ -16,10 +16,25 @@ interface TeamRow {
   players: number;
 }
 
+interface PublicEvent {
+  id: string;
+  type: "knockdown";
+  timestamp: string | null;
+  eventId: string | null;
+  downedId: string;
+  killerId: string;
+  downedName: string;
+  killerName: string;
+  downedTeam: string;
+  killerTeam: string;
+  message: string;
+}
+
 interface PublicState {
   sourceLog: string | null;
   sourceLogUpdatedAt: string | null;
   matchEnded: boolean;
+  events: PublicEvent[];
   teams: TeamRow[];
 }
 
@@ -30,6 +45,7 @@ interface OverlayConfig {
   fontSize: number;
   rowHeight: number;
   opacity: number;
+  rowOpacity: number;
   accentColor: string;
   headerColor: string;
   panelColor: string;
@@ -90,6 +106,7 @@ let state: PublicState = {
   sourceLog: null,
   sourceLogUpdatedAt: null,
   matchEnded: false,
+  events: [],
   teams: []
 };
 
@@ -104,6 +121,7 @@ let config: PublicConfig = {
     fontSize: 18,
     rowHeight: 44,
     opacity: 0.92,
+    rowOpacity: 1,
     accentColor: "#ff3b30",
     headerColor: "#ff9d1e",
     panelColor: "#1c1d23",
@@ -132,6 +150,8 @@ let activeControlTab: ControlTab = "overlay";
 let selectedGroupId = "";
 let groupSearch = "";
 let playerSearch = "";
+let matchStatsMessage = "";
+let matchStatsLoading = false;
 let overlayHasRendered = false;
 let animationPreviewKind: AnimationPreviewKind | null = null;
 let animationPreviewUntil = 0;
@@ -150,6 +170,7 @@ async function boot(): Promise<void> {
   ]);
   state = await stateResponse.json();
   config = await configResponse.json();
+  config.overlay = normalizeOverlayClientConfig(config.overlay);
   logSource = await logSourceResponse.json();
   groups = normalizeGroups(await groupsResponse.json());
   players = normalizePlayers(await playersResponse.json());
@@ -170,7 +191,10 @@ function connectSocket(): void {
       state = payload.state;
       currentRows = new Map(state.teams.map((team) => [team.teamId, team]));
     }
-    if (payload.config) config = payload.config;
+    if (payload.config) {
+      config = payload.config;
+      config.overlay = normalizeOverlayClientConfig(config.overlay);
+    }
     if (payload.logSource) logSource = payload.logSource;
     render();
   };
@@ -283,7 +307,7 @@ function animationSpeedValue(c: OverlayConfig): number {
 }
 
 function renderOverlay(animateBoard = false, animationPreview: AnimationPreviewKind | null = null): string {
-  const c = config.overlay;
+  const c = normalizeOverlayClientConfig(config.overlay);
   const rows = state.teams.slice(0, c.rowCount);
   const panelStyle = [
     `--panel-width:${c.width}px`,
@@ -291,6 +315,7 @@ function renderOverlay(animateBoard = false, animationPreview: AnimationPreviewK
     `--row-height:${c.rowHeight}px`,
     `--font-size:${c.fontSize}px`,
     `--panel-opacity:${c.opacity}`,
+    `--row-opacity:${c.rowOpacity}`,
     `--accent:${c.accentColor}`,
     `--header:${c.headerColor}`,
     `--panel:${c.panelColor}`,
@@ -320,6 +345,7 @@ function renderOverlay(animateBoard = false, animationPreview: AnimationPreviewK
         <div class="score-rows">
           ${rows.map((team, index) => renderTeamRow(team, c, index, animationPreview)).join("")}
         </div>
+        ${renderEventFeed()}
         ${
           c.showFooter
             ? `<div class="divider-line"></div>
@@ -337,6 +363,49 @@ function renderOverlay(animateBoard = false, animationPreview: AnimationPreviewK
   `;
 }
 
+function renderEventFeed(): string {
+  const events = (state.events || []).slice(0, 3);
+  if (events.length === 0) return "";
+
+  return `
+    <div class="event-feed">
+      ${events
+        .map(
+          (event) => `
+            <article class="event-item event-${event.type}" title="${escapeAttribute(event.message)}">
+              <span class="event-tag">KNOCK DOWN</span>
+              <span class="event-killer">${formatEventName(event.killerName, event.killerTeam)}</span>
+              <span class="event-arrow">></span>
+              <span class="event-downed">${formatEventName(event.downedName, event.downedTeam)}</span>
+            </article>
+          `
+        )
+        .join("")}
+    </div>
+  `;
+}
+
+function formatEventName(name: string, teamName: string): string {
+  const teamPrefix = teamName ? `<em>${escapeHtml(shortEventTeamName(teamName))}</em>` : "";
+  return `${teamPrefix}<strong>${escapeHtml(name)}</strong>`;
+}
+
+function shortEventTeamName(teamName: string): string {
+  const cleaned = teamName.trim();
+  if (cleaned.length <= 6) return cleaned.toUpperCase();
+  const words = cleaned
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (words.length <= 1) return cleaned.slice(0, 6).toUpperCase();
+  return words
+    .slice(0, 3)
+    .map((word) => word[0])
+    .join("")
+    .toUpperCase();
+}
+
 function renderLegendBars(kind: "alive" | "out"): string {
   return Array.from({ length: 4 })
     .map(() => `<i class="bar ${kind === "alive" ? "red" : ""}"></i>`)
@@ -345,16 +414,16 @@ function renderLegendBars(kind: "alive" | "out"): string {
 
 function renderDebugInfo(): string {
   const fullPath = state.sourceLog || "";
-  const fileName = fullPath ? fullPath.split(/[\\/]/).pop() || fullPath : "No log selected";
+  const fileName = fullPath ? fullPath.split(/[\\/]/).pop() || fullPath : "Chưa chọn log";
   const updatedAt = state.sourceLogUpdatedAt
     ? new Date(state.sourceLogUpdatedAt).toLocaleTimeString()
-    : "waiting";
+    : "đang chờ";
 
   return `
     <div class="debug-log" title="${escapeHtml(fullPath)}">
       <div class="status-left">
         <span class="debug-icon" aria-hidden="true"></span>
-        <span class="debug-label">READING</span>
+        <span class="debug-label">ĐANG ĐỌC</span>
         <strong>${escapeHtml(fileName)}</strong>
       </div>
       <div class="status-right">
@@ -372,7 +441,8 @@ function renderTeamRow(
   index: number,
   animationPreview: AnimationPreviewKind | null = null
 ): string {
-  const aliveSlots = Math.max(4, team.players || 4);
+  const aliveSlots = 4;
+  const visibleAlive = Math.max(0, Math.min(aliveSlots, team.alive));
   const previous = previousRows.get(team.teamId);
   const aliveChange = previous ? team.alive - previous.alive : 0;
   const rankChange = previous ? previous.rank - team.rank : 0;
@@ -409,9 +479,9 @@ function renderTeamRow(
         <div class="points">
           ${team.totalPoints}
         </div>
-        <div class="alive-bars" aria-label="${team.alive} alive">
+        <div class="alive-bars" aria-label="${visibleAlive} còn sống">
           ${Array.from({ length: aliveSlots })
-            .map((_, index) => `<span class="bar ${index < team.alive ? "red alive" : "out"}"></span>`)
+            .map((_, index) => `<span class="bar ${index < visibleAlive ? "red alive" : "out"}"></span>`)
             .join("")}
         </div>
       </div>
@@ -423,14 +493,14 @@ function renderControl(): string {
   return `
     <section class="control-shell">
       <div class="control-panel">
-        <h1>Overlay Controls</h1>
+        <h1>Điều khiển lớp phủ</h1>
         ${renderControlTabs()}
         ${activeControlTab === "overlay" ? renderOverlayControls() : ""}
         ${activeControlTab === "groups" ? renderGroupManager() : ""}
         ${activeControlTab === "players" ? renderPlayerManager() : ""}
         <div class="control-actions">
-          <a href="/overlay" target="_blank">Open overlay</a>
-          <span>${state.sourceLog ? escapeHtml(state.sourceLog.split(/[\\/]/).pop() || "") : "Waiting for log"}</span>
+          <a href="/overlay" target="_blank">Mở lớp phủ</a>
+          <span>${state.sourceLog ? escapeHtml(state.sourceLog.split(/[\\/]/).pop() || "") : "Đang chờ log"}</span>
         </div>
       </div>
       <div class="preview">${renderOverlay(false, activeControlTab === "overlay" ? currentAnimationPreviewKind() : null)}</div>
@@ -440,13 +510,13 @@ function renderControl(): string {
 
 function renderControlTabs(): string {
   const tabs: Array<{ id: ControlTab; label: string; count?: number }> = [
-    { id: "overlay", label: "Overlay" },
-    { id: "groups", label: "Groups", count: groups.length },
-    { id: "players", label: "Players", count: players.length }
+    { id: "overlay", label: "Lớp phủ" },
+    { id: "groups", label: "Nhóm", count: groups.length },
+    { id: "players", label: "Người chơi", count: players.length }
   ];
 
   return `
-    <nav class="control-tabs" aria-label="Control sections">
+    <nav class="control-tabs" aria-label="Khu vực điều khiển">
       ${tabs
         .map(
           (tab) => `
@@ -462,44 +532,52 @@ function renderControlTabs(): string {
 }
 
 function renderOverlayControls(): string {
-  const c = config.overlay;
+  const c = normalizeOverlayClientConfig(config.overlay);
   return `
     ${renderLogSourceControl()}
+    <div class="preset-actions">
+      <button type="button" data-config-export>Xuất cấu hình</button>
+      <label class="file-button">
+        Nhập cấu hình
+        <input type="file" accept=".json,application/json" data-config-import />
+      </label>
+    </div>
     <div class="control-grid">
-      ${rangeInput("width", "Width", c.width, 240, 900, 10)}
-      ${rangeInput("scale", "Scale", c.scale, 0.5, 2.5, 0.05)}
-      ${rangeInput("rowCount", "Rows", c.rowCount, 1, 30, 1)}
-      ${rangeInput("fontSize", "Font", c.fontSize, 10, 34, 1)}
-      ${rangeInput("rowHeight", "Row height", c.rowHeight, 28, 90, 1)}
-      ${rangeInput("opacity", "Opacity", c.opacity, 0.2, 1, 0.01)}
-      ${colorInput("accentColor", "Accent", c.accentColor)}
-      ${colorInput("headerColor", "Header", c.headerColor)}
-      ${colorInput("panelColor", "Panel", c.panelColor)}
-      ${colorInput("textColor", "Text", c.textColor)}
-      ${colorInput("mutedColor", "Muted", c.mutedColor)}
+      ${rangeInput("width", "Rộng", c.width, 240, 900, 10)}
+      ${rangeInput("scale", "Tỉ lệ", c.scale, 0.5, 2.5, 0.05)}
+      ${rangeInput("rowCount", "Số dòng", c.rowCount, 1, 30, 1)}
+      ${rangeInput("fontSize", "Cỡ chữ", c.fontSize, 10, 34, 1)}
+      ${rangeInput("rowHeight", "Cao dòng", c.rowHeight, 28, 90, 1)}
+      ${rangeInput("opacity", "Độ mờ", c.opacity, 0.2, 1, 0.01)}
+      ${rangeInput("rowOpacity", "Nền dòng", c.rowOpacity, 0, 1, 0.01)}
+      ${colorInput("accentColor", "Màu nhấn", c.accentColor)}
+      ${colorInput("headerColor", "Đầu bảng", c.headerColor)}
+      ${colorInput("panelColor", "Nền bảng", c.panelColor)}
+      ${colorInput("textColor", "Màu chữ", c.textColor)}
+      ${colorInput("mutedColor", "Màu phụ", c.mutedColor)}
       ${colorResetButton()}
-      ${toggleInput("animationEnabled", "Animation", c.animationEnabled)}
-      ${selectInput("moveAnimation", "Rank move", c.moveAnimation, [
-        ["glide", "Glide"],
-        ["slide", "Slide"],
-        ["snap", "Snap"],
-        ["top-pop", "Top pop"],
-        ["off", "Off"]
+      ${toggleInput("animationEnabled", "Hiệu ứng", c.animationEnabled)}
+      ${selectInput("moveAnimation", "Đổi hạng", c.moveAnimation, [
+        ["glide", "Lướt"],
+        ["slide", "Trượt"],
+        ["snap", "Nhanh"],
+        ["top-pop", "Bật lên"],
+        ["off", "Tắt"]
       ])}
-      ${selectInput("rowEnterAnimation", "New row", c.rowEnterAnimation, [
-        ["slide", "Slide in"],
-        ["fade", "Fade in"],
-        ["off", "Off"]
+      ${selectInput("rowEnterAnimation", "Dòng mới", c.rowEnterAnimation, [
+        ["slide", "Trượt vào"],
+        ["fade", "Mờ dần"],
+        ["off", "Tắt"]
       ])}
-      ${selectInput("playerLostAnimation", "Player lost", c.playerLostAnimation, [
-        ["pulse", "Pulse"],
-        ["shake", "Shake"],
-        ["off", "Off"]
+      ${selectInput("playerLostAnimation", "Mất người", c.playerLostAnimation, [
+        ["pulse", "Nhấp nháy"],
+        ["shake", "Rung"],
+        ["off", "Tắt"]
       ])}
-      ${rangeInput("animationSpeed", "Anim speed", c.animationSpeed, 0.15, 2, 0.05)}
+      ${rangeInput("animationSpeed", "Tốc độ", c.animationSpeed, 0.15, 2, 0.05)}
       ${toggleInput("showLogo", "Logo", c.showLogo)}
-      ${toggleInput("showFooter", "Footer", c.showFooter)}
-      ${toggleInput("showDebug", "Debug", c.showDebug)}
+      ${toggleInput("showFooter", "Chú giải", c.showFooter)}
+      ${toggleInput("showDebug", "Gỡ lỗi", c.showDebug)}
     </div>
   `;
 }
@@ -539,6 +617,33 @@ function bindControlEvents(): void {
     };
     render();
     void saveConfig();
+  });
+
+  app.querySelector<HTMLButtonElement>("[data-config-export]")?.addEventListener("click", () => {
+    const payload = {
+      type: "ff-tools-overlay-config",
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      overlay: normalizeOverlayClientConfig(config.overlay)
+    };
+    downloadText("ff-tools-overlay-config.json", JSON.stringify(payload, null, 2), "application/json;charset=utf-8");
+  });
+
+  app.querySelector<HTMLInputElement>("[data-config-import]")?.addEventListener("change", async (event) => {
+    const input = event.currentTarget;
+    const file = input.files?.[0];
+    input.value = "";
+    if (!file) return;
+
+    try {
+      const raw = JSON.parse(await file.text()) as unknown;
+      const overlay = normalizeImportedOverlayConfig(raw);
+      config = { ...config, overlay };
+      render();
+      await saveConfigNow();
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "Không thể nhập cấu hình");
+    }
   });
 
   app.querySelectorAll<HTMLInputElement | HTMLSelectElement>("[data-config]").forEach((input) => {
@@ -601,12 +706,12 @@ async function saveLogSource(filePath: string): Promise<void> {
       body: JSON.stringify({ path: filePath })
     });
     const payload = await response.json();
-    if (!response.ok) throw new Error(payload.error || "Unable to set debugger log path");
+    if (!response.ok) throw new Error(payload.error || "Không thể đặt đường dẫn log debugger");
 
     logSource = payload;
     logPathDraft = payload.path || "";
   } catch (error) {
-    logSourceError = error instanceof Error ? error.message : "Unable to set debugger log path";
+    logSourceError = error instanceof Error ? error.message : "Không thể đặt đường dẫn log debugger";
   }
   render();
 }
@@ -643,8 +748,41 @@ function bindGroupManagerEvents(): void {
   app.querySelectorAll<HTMLButtonElement>("[data-group-select]").forEach((button) => {
     button.addEventListener("click", () => {
       selectedGroupId = button.dataset.groupSelect || "";
+      matchStatsMessage = "";
       render();
     });
+  });
+
+  app.querySelector<HTMLButtonElement>("[data-match-stats-apply]")?.addEventListener("click", async () => {
+    const selected = getSelectedGroup();
+    if (!selected || matchStatsLoading) return;
+
+    matchStatsLoading = true;
+    matchStatsMessage = "Đang lấy điểm trận...";
+    render();
+
+    try {
+      const response = await fetch("/api/match-stats/apply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ groupId: selected.groupId })
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(result.message || `HTTP ${response.status}`);
+      }
+
+      const teamCount = Array.isArray(result.teams) ? result.teams.length : 0;
+      const failedBatches = Number(result.failedBatches || 0);
+      matchStatsMessage = failedBatches
+        ? `Đã áp dụng ${teamCount} đội; lỗi ${failedBatches} lô.`
+        : `Đã áp dụng ${teamCount} đội từ ${Number(result.matchIdCount || 0)} ID trận.`;
+    } catch (error) {
+      matchStatsMessage = error instanceof Error ? error.message : String(error);
+    } finally {
+      matchStatsLoading = false;
+      render();
+    }
   });
 
   app.querySelector<HTMLFormElement>("[data-group-edit]")?.addEventListener("submit", (event) => {
@@ -804,21 +942,58 @@ let saveTimer: number | null = null;
 function saveConfig(): void {
   if (saveTimer) window.clearTimeout(saveTimer);
   saveTimer = window.setTimeout(async () => {
-    await fetch("/api/config", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(config.overlay)
-    });
+    await saveConfigNow();
   }, 250);
+}
+
+async function saveConfigNow(): Promise<void> {
+  if (saveTimer) {
+    window.clearTimeout(saveTimer);
+    saveTimer = null;
+  }
+
+  const response = await fetch("/api/config", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(normalizeOverlayClientConfig(config.overlay))
+  });
+  if (!response.ok) {
+    throw new Error(`Không thể lưu cấu hình: HTTP ${response.status}`);
+  }
+  config = await response.json();
+  config.overlay = normalizeOverlayClientConfig(config.overlay);
+}
+
+function normalizeOverlayClientConfig(input: Partial<OverlayConfig>): OverlayConfig {
+  return {
+    ...config.overlay,
+    ...input,
+    rowOpacity: Math.max(0, Math.min(1, numberOrDefault(input.rowOpacity, 1)))
+  };
+}
+
+function normalizeImportedOverlayConfig(input: unknown): OverlayConfig {
+  if (!input || typeof input !== "object") {
+    throw new Error("File cấu hình không hợp lệ");
+  }
+
+  const record = input as Record<string, unknown>;
+  const overlay = record.overlay && typeof record.overlay === "object" ? (record.overlay as Partial<OverlayConfig>) : (record as Partial<OverlayConfig>);
+  return normalizeOverlayClientConfig(overlay);
+}
+
+function numberOrDefault(value: unknown, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
 }
 
 function renderLogSourceControl(): string {
   const currentPath = state.sourceLog || "";
   const selectedPath = logPathDraft ?? logSource.path ?? currentPath;
-  const modeText = logSource.mode === "file" ? "Manual" : "Auto";
-  const statusText = currentPath ? "Reading" : logSource.mode === "file" ? "Waiting" : "Scanning";
-  const activeText = currentPath ? currentPath : "Waiting for log";
-  const fileName = currentPath ? currentPath.split(/[\\/]/).pop() || currentPath : "No active file";
+  const modeText = logSource.mode === "file" ? "Thủ công" : "Tự động";
+  const statusText = currentPath ? "Đang đọc" : logSource.mode === "file" ? "Đang chờ" : "Đang quét";
+  const activeText = currentPath ? currentPath : "Đang chờ log";
+  const fileName = currentPath ? currentPath.split(/[\\/]/).pop() || currentPath : "Chưa có file";
   const updatedAt = state.sourceLogUpdatedAt
     ? new Date(state.sourceLogUpdatedAt).toLocaleTimeString()
     : "--:--:--";
@@ -827,33 +1002,33 @@ function renderLogSourceControl(): string {
     <form class="log-reader" data-log-source-form>
       <div class="log-reader-head">
         <div>
-          <span class="eyebrow">Input</span>
-          <h2>Log Reader</h2>
+          <span class="eyebrow">Nguồn vào</span>
+          <h2>Đọc log</h2>
         </div>
         <span class="reader-mode ${logSource.mode === "file" ? "is-manual" : ""}">${escapeHtml(modeText)}</span>
       </div>
       <label class="reader-path">
-        <span>Path</span>
+        <span>Đường dẫn</span>
         <input
           data-log-source-input
           type="text"
           value="${escapeHtml(selectedPath)}"
-          placeholder="C:\\full\\path\\debugger-2026-05-14T08-39-14.log"
+          placeholder="C:\\duong\\dan\\day-du\\debugger-2026-05-14T08-39-14.log"
           spellcheck="false"
         />
       </label>
       <div class="reader-actions">
-        <button class="reader-attach" type="submit">Attach</button>
-        <button class="reader-auto" type="button" data-log-source-auto>Auto</button>
+        <button class="reader-attach" type="submit">Gắn log</button>
+        <button class="reader-auto" type="button" data-log-source-auto>Tự động</button>
         <span class="reader-state ${currentPath ? "is-live" : ""}">${escapeHtml(statusText)}</span>
       </div>
       <div class="reader-current">
         <div class="reader-file">
-          <span>Current</span>
+          <span>Hiện tại</span>
           <strong title="${escapeHtml(activeText)}">${escapeHtml(fileName)}</strong>
         </div>
         <div class="reader-time">
-          <span>Updated</span>
+          <span>Cập nhật</span>
           <strong>${escapeHtml(updatedAt)}</strong>
         </div>
       </div>
@@ -874,35 +1049,35 @@ function renderGroupManager(): string {
     <section class="manager-panel">
       <div class="manager-head">
         <div>
-          <span class="eyebrow">Planning</span>
-          <h2>Group Manager</h2>
+          <span class="eyebrow">Kế hoạch</span>
+          <h2>Quản lý nhóm</h2>
         </div>
         <div class="manager-actions">
           <label class="file-button">
-            Import CSV
+            Nhập CSV
             <input type="file" accept=".csv,text/csv" data-group-import />
           </label>
-          <button type="button" data-group-export>Export</button>
+          <button type="button" data-group-export>Xuất</button>
         </div>
       </div>
 
       <form class="manager-form" data-group-form>
-        <input name="groupId" placeholder="Group name" autocomplete="off" required />
-        <input name="note" placeholder="Note" autocomplete="off" />
-        <textarea name="matchIds" rows="3" placeholder="Match IDs, separated by comma or new line"></textarea>
-        <button type="submit">Add group</button>
+        <input name="groupId" placeholder="Tên nhóm" autocomplete="off" required />
+        <input name="note" placeholder="Ghi chú" autocomplete="off" />
+        <textarea name="matchIds" rows="3" placeholder="ID trận, cách nhau bằng dấu phẩy hoặc xuống dòng"></textarea>
+        <button type="submit">Thêm nhóm</button>
       </form>
 
       <label class="manager-search">
-        <span>Search groups</span>
-        <input value="${escapeHtml(groupSearch)}" data-group-search placeholder="Find by group, note, or match..." />
+        <span>Tìm nhóm</span>
+        <input value="${escapeHtml(groupSearch)}" data-group-search placeholder="Tìm theo nhóm, ghi chú hoặc trận..." />
       </label>
 
       <div class="manager-list group-list">
         ${
           filteredGroups.length
             ? filteredGroups.map((group) => renderGroupListItem(group)).join("")
-            : `<div class="empty-note">No groups yet.</div>`
+            : `<div class="empty-note">Chưa có nhóm.</div>`
         }
       </div>
 
@@ -912,43 +1087,47 @@ function renderGroupManager(): string {
             ? `
               <div class="detail-head">
                 <div>
-                  <span class="eyebrow">Selected</span>
+                  <span class="eyebrow">Đang chọn</span>
                   <h3>${escapeHtml(selectedGroup.groupId)}</h3>
                 </div>
-                <button type="button" class="danger-button" data-group-delete="${escapeAttribute(selectedGroup.groupId)}">Delete</button>
+                <div class="manager-actions">
+                  <button type="button" data-match-stats-apply ${matchStatsLoading ? "disabled" : ""}>${matchStatsLoading ? "Đang áp dụng..." : "Áp dụng điểm"}</button>
+                  <button type="button" class="danger-button" data-group-delete="${escapeAttribute(selectedGroup.groupId)}">Xóa</button>
+                </div>
               </div>
+              ${matchStatsMessage ? `<div class="match-stats-status">${escapeHtml(matchStatsMessage)}</div>` : ""}
               <form class="detail-grid" data-group-edit>
                 <label>
-                  <span>Group</span>
+                  <span>Nhóm</span>
                   <input name="groupId" value="${escapeHtml(selectedGroup.groupId)}" required />
                 </label>
                 <label>
-                  <span>Note</span>
+                  <span>Ghi chú</span>
                   <input name="note" value="${escapeHtml(selectedGroup.note)}" />
                 </label>
                 <label class="wide-field">
-                  <span>Team names for today</span>
-                  <textarea name="teamNames" rows="3" placeholder="One team per line">${escapeHtml(selectedGroup.teamNames.join("\n"))}</textarea>
+                  <span>Tên đội hôm nay</span>
+                  <textarea name="teamNames" rows="3" placeholder="Mỗi dòng một đội">${escapeHtml(selectedGroup.teamNames.join("\n"))}</textarea>
                 </label>
-                <button type="submit">Save group</button>
+                <button type="submit">Lưu nhóm</button>
               </form>
               <form class="inline-form" data-match-form>
-                <input name="matchId" placeholder="Match ID" required />
-                <input name="description" placeholder="Description" />
-                <button type="submit">Add match</button>
+                <input name="matchId" placeholder="ID trận" required />
+                <input name="description" placeholder="Mô tả" />
+                <button type="submit">Thêm trận</button>
               </form>
               <div class="chip-row">
-                ${teamNames.length ? teamNames.map((name) => `<button type="button" data-team-chip="${escapeAttribute(name)}">${escapeHtml(name)}</button>`).join("") : `<span>No player teams available.</span>`}
+                ${teamNames.length ? teamNames.map((name) => `<button type="button" data-team-chip="${escapeAttribute(name)}">${escapeHtml(name)}</button>`).join("") : `<span>Chưa có đội từ danh sách người chơi.</span>`}
               </div>
               <div class="match-list">
                 ${
                   selectedGroup.matches.length
                     ? selectedGroup.matches.map((match) => renderMatchItem(match)).join("")
-                    : `<div class="empty-note">This group has no matches.</div>`
+                    : `<div class="empty-note">Nhóm này chưa có trận.</div>`
                 }
               </div>
             `
-            : `<div class="empty-note">Select or create a group to edit matches and team names.</div>`
+            : `<div class="empty-note">Chọn hoặc tạo nhóm để sửa trận và tên đội.</div>`
         }
       </div>
     </section>
@@ -960,7 +1139,7 @@ function renderGroupListItem(group: ManagedGroup): string {
   return `
     <button type="button" class="manager-row ${selected ? "selected" : ""}" data-group-select="${escapeAttribute(group.groupId)}">
       <strong>${escapeHtml(group.groupId)}</strong>
-      <span>${group.matches.length} matches | ${group.teamNames.length} teams</span>
+      <span>${group.matches.length} trận | ${group.teamNames.length} đội</span>
       ${group.note ? `<em>${escapeHtml(group.note)}</em>` : ""}
     </button>
   `;
@@ -973,7 +1152,7 @@ function renderMatchItem(match: ManagedGroupMatch): string {
         <strong>${escapeHtml(match.matchId)}</strong>
         ${match.description ? `<span>${escapeHtml(match.description)}</span>` : ""}
       </div>
-      <button type="button" data-match-delete="${escapeAttribute(match.matchId)}">Remove</button>
+      <button type="button" data-match-delete="${escapeAttribute(match.matchId)}">Xóa</button>
     </div>
   `;
 }
@@ -988,35 +1167,35 @@ function renderPlayerManager(): string {
     <section class="manager-panel">
       <div class="manager-head">
         <div>
-          <span class="eyebrow">Roster</span>
-          <h2>Player Data</h2>
+          <span class="eyebrow">Đội hình</span>
+          <h2>Dữ liệu người chơi</h2>
         </div>
         <div class="manager-actions">
           <label class="file-button">
-            Import CSV
+            Nhập CSV
             <input type="file" accept=".csv,text/csv" data-player-import />
           </label>
-          <button type="button" data-player-export>Export</button>
+          <button type="button" data-player-export>Xuất</button>
         </div>
       </div>
 
       <form class="manager-form" data-player-form>
-        <input name="playerId" placeholder="Player ID" autocomplete="off" required />
-        <input name="playerName" placeholder="Player name" autocomplete="off" required />
-        <input name="teamName" placeholder="Team name" autocomplete="off" required />
-        <button type="submit">Add player</button>
+        <input name="playerId" placeholder="ID người chơi" autocomplete="off" required />
+        <input name="playerName" placeholder="Tên người chơi" autocomplete="off" required />
+        <input name="teamName" placeholder="Tên đội" autocomplete="off" required />
+        <button type="submit">Thêm người chơi</button>
       </form>
 
       <label class="manager-search">
-        <span>Search players</span>
-        <input value="${escapeHtml(playerSearch)}" data-player-search placeholder="Find by ID, player, or team..." />
+        <span>Tìm người chơi</span>
+        <input value="${escapeHtml(playerSearch)}" data-player-search placeholder="Tìm theo ID, người chơi hoặc đội..." />
       </label>
 
       <div class="manager-list player-list">
         ${
           filteredPlayers.length
             ? filteredPlayers.map((player) => renderPlayerRow(player)).join("")
-            : `<div class="empty-note">No players yet.</div>`
+            : `<div class="empty-note">Chưa có người chơi.</div>`
         }
       </div>
     </section>
@@ -1029,8 +1208,8 @@ function renderPlayerRow(player: ManagedPlayer): string {
       <input name="playerId" value="${escapeHtml(player.playerId)}" required />
       <input name="playerName" value="${escapeHtml(player.playerName)}" required />
       <input name="teamName" value="${escapeHtml(player.teamName)}" required />
-      <button type="submit">Save</button>
-      <button type="button" class="danger-button" data-player-delete="${escapeAttribute(player.playerId)}">Delete</button>
+      <button type="submit">Lưu</button>
+      <button type="button" class="danger-button" data-player-delete="${escapeAttribute(player.playerId)}">Xóa</button>
     </form>
   `;
 }
@@ -1082,8 +1261,8 @@ function selectInput(
 function colorResetButton(): string {
   return `
     <div class="field color-reset-field">
-      <span>Colors</span>
-      <button type="button" data-color-reset>Reset colors</button>
+      <span>Màu sắc</span>
+      <button type="button" data-color-reset>Đặt lại màu</button>
     </div>
   `;
 }
@@ -1110,29 +1289,39 @@ function parseMatchIds(value: string): string[] {
 }
 
 function parseLines(value: string): string[] {
-  return [...new Set(value.split(/\r?\n|,/).map(normalizeText).filter(Boolean))];
+  return [...new Set(value.split(/\r?\n|,|;/).map(normalizeText).filter(Boolean))];
 }
 
 function normalizeGroups(input: unknown): ManagedGroup[] {
   if (!Array.isArray(input)) return [];
   return input
     .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object")
-    .map((item, index) => ({
-      groupId: normalizeText(item.groupId || `group-${index + 1}`),
-      note: normalizeText(item.note),
-      createdAt: normalizeText(item.createdAt) || new Date().toISOString(),
-      matches: Array.isArray(item.matches)
+    .map((item, index) => {
+      const createdAt = normalizeText(item.createdAt) || new Date().toISOString();
+      const matches = Array.isArray(item.matches)
         ? item.matches
             .filter((match): match is Record<string, unknown> => Boolean(match) && typeof match === "object")
             .map((match) => ({
               matchId: normalizeText(match.matchId),
               description: normalizeText(match.description),
-              addTime: normalizeText(match.addTime) || new Date().toISOString()
+              addTime: normalizeText(match.addTime) || createdAt
             }))
             .filter((match) => match.matchId)
-        : [],
-      teamNames: Array.isArray(item.teamNames) ? parseLines(item.teamNames.join("\n")) : []
-    }))
+        : Array.isArray(item.matchIds)
+          ? item.matchIds
+              .map((matchId) => normalizeText(matchId))
+              .filter(Boolean)
+              .map((matchId) => ({ matchId, description: "", addTime: createdAt }))
+          : parseMatchIds(normalizeText(item.matchId)).map((matchId) => ({ matchId, description: "", addTime: createdAt }));
+
+      return {
+        groupId: normalizeText(item.groupId || item.name || `group-${index + 1}`),
+        note: normalizeText(item.note),
+        createdAt,
+        matches,
+        teamNames: Array.isArray(item.teamNames) ? parseLines(item.teamNames.join("\n")) : parseLines(normalizeText(item.teamNames))
+      };
+    })
     .filter((group) => group.groupId);
 }
 
@@ -1175,15 +1364,24 @@ function parseGroupCsv(text: string): ManagedGroup[] {
   const rows = parseCsvRows(text);
   if (rows.length === 0) return [];
   const hasHeader = rows[0].some((cell) => /groupid|matchids|note/i.test(cell));
+  const header = hasHeader ? rows[0].map((cell) => cell.toLowerCase()) : [];
   const dataRows = hasHeader ? rows.slice(1) : rows;
   return dataRows
-    .map(([groupId, matchIds = "", note = ""]) => ({
-      groupId: normalizeText(groupId),
-      note: normalizeText(note),
-      createdAt: new Date().toISOString(),
-      matches: parseMatchIds(matchIds).map((matchId) => ({ matchId, description: "", addTime: new Date().toISOString() })),
-      teamNames: []
-    }))
+    .map((row) => {
+      const groupId = hasHeader ? row[header.indexOf("groupid")] : row[0];
+      const matchIds = hasHeader ? row[header.indexOf("matchids")] || row[header.indexOf("matchid")] : row[1];
+      const note = hasHeader ? row[header.indexOf("note")] : row[2];
+      const teamNames = hasHeader ? row[header.indexOf("teamnames")] : row[3];
+      const createdAt = new Date().toISOString();
+
+      return {
+        groupId: normalizeText(groupId),
+        note: normalizeText(note),
+        createdAt,
+        matches: parseMatchIds(matchIds || "").map((matchId) => ({ matchId, description: "", addTime: createdAt })),
+        teamNames: parseLines(teamNames || "")
+      };
+    })
     .filter((group) => group.groupId);
 }
 
@@ -1207,6 +1405,7 @@ function mergeGroups(current: ManagedGroup[], incoming: ManagedGroup[]): Managed
     }
     existing.note = group.note || existing.note;
     existing.matches = mergeMatches(existing.matches, group.matches);
+    existing.teamNames = parseLines([...existing.teamNames, ...group.teamNames].join("\n"));
   });
   return merged;
 }
@@ -1245,8 +1444,8 @@ function csvLine(cells: string[]): string {
   return cells.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(",");
 }
 
-function downloadText(fileName: string, text: string): void {
-  const blob = new Blob([text], { type: "text/csv;charset=utf-8" });
+function downloadText(fileName: string, text: string, type = "text/csv;charset=utf-8"): void {
+  const blob = new Blob([text], { type });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;

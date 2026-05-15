@@ -7,6 +7,15 @@ export interface TeamConfig {
   accentColor: string;
 }
 
+export interface MatchStatsBaseTeam {
+  teamName: string;
+  teamId: number | null;
+  totalScore: number;
+  elims: number;
+  rankPoint: number;
+  matchCount: number;
+}
+
 export interface PlayerRosterEntry {
   teamName: string;
   playerId: string;
@@ -38,6 +47,7 @@ export interface OverlayConfig {
   fontSize: number;
   rowHeight: number;
   opacity: number;
+  rowOpacity: number;
   accentColor: string;
   headerColor: string;
   panelColor: string;
@@ -69,10 +79,25 @@ export interface TeamRow {
   players: number;
 }
 
+export interface PublicEvent {
+  id: string;
+  type: "knockdown";
+  timestamp: string | null;
+  eventId: string | null;
+  downedId: string;
+  killerId: string;
+  downedName: string;
+  killerName: string;
+  downedTeam: string;
+  killerTeam: string;
+  message: string;
+}
+
 export interface PublicState {
   sourceLog: string | null;
   sourceLogUpdatedAt: string | null;
   matchEnded: boolean;
+  events: PublicEvent[];
   teams: TeamRow[];
 }
 

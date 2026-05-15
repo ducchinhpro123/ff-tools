@@ -118,7 +118,7 @@ export async function loadTeamConfig(): Promise<TeamConfig[]> {
       }))
       .filter((team) => team.teamId > 0);
   } catch (error) {
-    console.warn(`Unable to read teams CSV at ${teamsCsvPath}:`, error);
+    console.warn(`Không thể đọc CSV đội tại ${teamsCsvPath}:`, error);
     return [];
   }
 }
@@ -149,7 +149,7 @@ export async function loadPlayerRoster(): Promise<PlayerRosterEntry[]> {
       }))
       .filter((player) => player.teamName && player.playerId);
   } catch (error) {
-    console.warn(`Unable to read player roster CSV at ${rosterPath}:`, error);
+    console.warn(`Không thể đọc CSV đội hình tại ${rosterPath}:`, error);
     return [];
   }
 }
@@ -197,6 +197,7 @@ export function normalizeOverlayConfig(input: Partial<OverlayConfig>): OverlayCo
     fontSize: Math.max(10, Math.min(34, numberOrDefault(input.fontSize, DEFAULT_OVERLAY_CONFIG.fontSize))),
     rowHeight: Math.max(28, Math.min(90, numberOrDefault(input.rowHeight, DEFAULT_OVERLAY_CONFIG.rowHeight))),
     opacity: Math.max(0.2, Math.min(1, numberOrDefault(input.opacity, DEFAULT_OVERLAY_CONFIG.opacity))),
+    rowOpacity: Math.max(0, Math.min(1, numberOrDefault(input.rowOpacity, DEFAULT_OVERLAY_CONFIG.rowOpacity))),
     accentColor: String(input.accentColor || DEFAULT_OVERLAY_CONFIG.accentColor),
     headerColor: String(input.headerColor || DEFAULT_OVERLAY_CONFIG.headerColor),
     panelColor: String(input.panelColor || DEFAULT_OVERLAY_CONFIG.panelColor),
