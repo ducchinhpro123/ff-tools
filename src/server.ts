@@ -42,6 +42,8 @@ let logCounter = 0;
 let teamsReloadTimer: NodeJS.Timeout | null = null;
 let isServerStarted = false;
 let activePort = 0;
+let activeMatchStatsContext: { groupId: string | null; matchIds: string[]; teamNames: string[] } | null = null;
+let refreshInFlight = false;
 
 app.use(express.json({ limit: "64kb" }));
 app.use("/assets", express.static(assetsDir));
@@ -132,6 +134,31 @@ async function reloadTeamsIfChanged(force = false): Promise<void> {
   broadcast("config");
 }
 
+async function refreshMatchStatsBase(reason: string): Promise<void> {
+  if (!activeMatchStatsContext) return;
+  if (refreshInFlight) return;
+
+  const { matchIds, teamNames } = activeMatchStatsContext;
+  if (matchIds.length === 0 && teamNames.length === 0) return;
+
+  refreshInFlight = true;
+  try {
+    const aggregate = await fetchAggregatedMatchStats(matchIds, teamNames);
+    state.setMatchStatsBase(aggregate.teams);
+
+    const detail = `${aggregate.matchCount} trận, ${aggregate.teams.length} đội${
+      aggregate.failedBatches ? `, lỗi ${aggregate.failedBatches} lô` : ""
+    }`;
+    pushLog(`Auto-cập nhật điểm trận (${reason}): ${detail}`, aggregate.failedBatches ? "warn" : "success");
+    broadcast("state");
+  } catch (error) {
+    pushLog(`Auto-cập nhật điểm trận (${reason}) lỗi: ${String(error)}`, "warn");
+    broadcast("state");
+  } finally {
+    refreshInFlight = false;
+  }
+}
+
 app.get("/api/state", (_request, response) => {
   response.json(publicState());
 });
@@ -216,6 +243,11 @@ app.post("/api/match-stats/apply", async (request, response) => {
 
   const aggregate = await fetchAggregatedMatchStats(normalizedMatchIds, teamNames);
   state.setMatchStatsBase(aggregate.teams);
+  activeMatchStatsContext = {
+    groupId: selectedGroup?.groupId || null,
+    matchIds: normalizedMatchIds,
+    teamNames
+  };
   broadcast("state");
 
   response.json({
@@ -304,6 +336,18 @@ app.post("/create-listener", async (request, response) => {
   currentListenerID = randomUUID();
   tailer?.stop();
   tailer?.useLogFile(filePath);
+
+  if (selectedGroup) {
+    const groupMatchIds = normalizeMatchIds(selectedGroup.matches.map((match) => match.matchId));
+    activeMatchStatsContext = {
+      groupId: selectedGroup.groupId,
+      matchIds: groupMatchIds,
+      teamNames: [...selectedGroup.teamNames]
+    };
+  } else {
+    activeMatchStatsContext = null;
+  }
+
   pushLog(`Tạo listener ${currentListenerID}`, "success");
   broadcast("state");
 
@@ -326,6 +370,12 @@ app.post("/start-listener", async (request, response) => {
 
   tailer?.start();
   await tailer?.tick();
+  // Kick off an initial pull so basePoints is populated even before the first
+  // OnTeamScoreInited line arrives. Subsequent fetches are driven by the
+  // ScoreboardState onMatchStart hook.
+  if (activeMatchStatsContext) {
+    void refreshMatchStatsBase("start-listener");
+  }
   broadcast("state");
   response.json({ status: "ok", message: "Đã start listener", ...publicListenerState() });
 });
@@ -426,6 +476,9 @@ export async function startServer(port = Number(process.env.PORT || DEFAULT_PORT
   state.setPlayerRoster(players.length > 0 ? players : await loadPlayerRoster());
 
   pushLog("Server khởi động", "success");
+  state.setOnMatchStart(() => {
+    void refreshMatchStatsBase("new-match");
+  });
   tailer = new LogTailer(state, () => broadcast("state"), undefined, undefined, (message, level = "info") => {
     pushLog(message, level, "tailer");
     broadcast("state");

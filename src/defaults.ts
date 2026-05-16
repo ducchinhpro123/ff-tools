@@ -24,5 +24,6 @@ export const DEFAULT_OVERLAY_CONFIG: OverlayConfig = {
   moveAnimation: "glide",
   rowEnterAnimation: "slide",
   playerLostAnimation: "pulse",
-  animationSpeed: 1
+  animationSpeed: 1,
+  rowStyle: "classic"
 };

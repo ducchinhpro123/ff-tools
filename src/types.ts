@@ -61,6 +61,7 @@ export interface OverlayConfig {
   rowEnterAnimation: string;
   playerLostAnimation: string;
   animationSpeed: number;
+  rowStyle: string;
 }
 
 export interface TeamRow {

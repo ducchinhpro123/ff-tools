@@ -450,3 +450,76 @@ test("uses roster player IDs from Player Join to resolve team names and team IDs
   assert.equal(row.players, 1);
   assert.equal(row.alive, 1);
 });
+
+
+test("onMatchStart fires once per match boundary (initial + after match end)", async () => {
+  const state = new ScoreboardState();
+  let calls = 0;
+  // Use 0ms debounce so we can assert synchronously.
+  state.setOnMatchStart(() => {
+    calls += 1;
+  }, 0);
+
+  // First match: 4 teamInit lines should still fire only once.
+  state.consumeLine("OnTeamScoreInited -> TeamName: Alpha TeamID: 1");
+  state.consumeLine("OnTeamScoreInited -> TeamName: Beta TeamID: 2");
+  state.consumeLine("OnTeamScoreInited -> TeamName: Gamma TeamID: 3");
+  state.consumeLine("OnTeamScoreInited -> TeamName: Delta TeamID: 4");
+  assert.equal(calls, 1);
+
+  // Mid-match teamInit (e.g. spectator reconnect re-emits) must not retrigger.
+  state.consumeLine("OnTeamScoreInited -> TeamName: Alpha TeamID: 1");
+  assert.equal(calls, 1);
+
+  // End of match 1.
+  state.consumeLine("[MatchResult] receive S2C_RUDP_MatchEnd_Res from GS");
+  assert.equal(state.toPublicState().matchEnded, true);
+
+  // Match 2 begins.
+  state.consumeLine("OnTeamScoreInited -> TeamName: Alpha TeamID: 1");
+  assert.equal(calls, 2);
+  // Match 2 sets matchEnded back to false because a new match started.
+  assert.equal(state.toPublicState().matchEnded, false);
+
+  // Match 2 mid-init burst is suppressed too.
+  state.consumeLine("OnTeamScoreInited -> TeamName: Beta TeamID: 2");
+  state.consumeLine("OnTeamScoreInited -> TeamName: Gamma TeamID: 3");
+  assert.equal(calls, 2);
+});
+
+test("onMatchStart re-arms after state.reset (new log file)", () => {
+  const state = new ScoreboardState();
+  let calls = 0;
+  state.setOnMatchStart(() => {
+    calls += 1;
+  }, 0);
+
+  state.consumeLine("OnTeamScoreInited -> TeamName: Alpha TeamID: 1");
+  assert.equal(calls, 1);
+
+  // Switching log files via reset should let the next teamInit fire again.
+  state.reset(null);
+  state.consumeLine("OnTeamScoreInited -> TeamName: Alpha TeamID: 1");
+  assert.equal(calls, 2);
+});
+
+test("onMatchStart debounce coalesces rapid teamInit bursts", async () => {
+  const state = new ScoreboardState();
+  let calls = 0;
+  state.setOnMatchStart(() => {
+    calls += 1;
+  }, 30);
+
+  state.consumeLine("OnTeamScoreInited -> TeamName: Alpha TeamID: 1");
+  state.consumeLine("OnTeamScoreInited -> TeamName: Beta TeamID: 2");
+  // Synchronously the timer hasn't fired yet.
+  assert.equal(calls, 0);
+
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(calls, 1);
+
+  // Subsequent teamInit within the same match shouldn't queue another timer.
+  state.consumeLine("OnTeamScoreInited -> TeamName: Gamma TeamID: 3");
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(calls, 1);
+});

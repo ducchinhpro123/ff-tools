@@ -1144,7 +1144,9 @@ body {
 .inline-form button,
 .chip-row button,
 .match-item button,
-.player-row button {
+.player-row button,
+.run-actions button,
+.run-actions a {
   min-height: 32px;
   padding: 0 11px;
   border: 1px solid rgb(255 255 255 / 0.15);
@@ -1153,12 +1155,14 @@ body {
   color: #f5f7fb;
   font: 700 12px Arial, sans-serif;
   cursor: pointer;
+  text-decoration: none;
 }
 
 .manager-actions button:disabled,
 .manager-form button:disabled,
 .detail-grid button:disabled,
-.inline-form button:disabled {
+.inline-form button:disabled,
+.run-actions button:disabled {
   opacity: 0.55;
   cursor: progress;
 }
@@ -1212,7 +1216,8 @@ body {
 .detail-grid input,
 .detail-grid textarea,
 .inline-form input,
-.player-row input {
+.player-row input,
+.run-tools-grid input {
   width: 100%;
   min-width: 0;
   padding: 9px 10px;
@@ -1224,13 +1229,16 @@ body {
 }
 
 .manager-search,
-.detail-grid label {
+.detail-grid label,
+.run-tools-grid label {
   display: grid;
   gap: 6px;
 }
 
 .manager-search span,
-.detail-grid span {
+.detail-grid span,
+.run-tools-grid span,
+.run-tools-meta span {
   color: #9ca8b8;
   font-size: 12px;
 }
@@ -1263,10 +1271,44 @@ body {
 .manager-row em,
 .empty-note,
 .chip-row span,
-.match-item span {
+.match-item span,
+.match-item em {
   color: #9ca8b8;
   font-style: normal;
   font-size: 12px;
+}
+
+.manager-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.manager-stats div,
+.run-tools-meta {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid rgb(255 255 255 / 0.1);
+  border-radius: 6px;
+  background: linear-gradient(135deg, #10151d, #171c24);
+}
+
+.manager-stats span,
+.manager-stats strong,
+.run-tools-meta span,
+.run-tools-meta strong {
+  display: block;
+}
+
+.manager-stats span {
+  color: #9ca8b8;
+  font-size: 12px;
+}
+
+.manager-stats strong {
+  margin-top: 3px;
+  color: #f5f7fb;
+  font: 800 22px "Rajdhani", Arial, sans-serif;
 }
 
 .detail-panel {
@@ -1276,6 +1318,60 @@ body {
   border: 1px solid rgb(255 255 255 / 0.12);
   border-radius: 8px;
   background: #12151b;
+}
+
+.run-tools-panel {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid rgb(255 157 30 / 0.2);
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, rgb(255 157 30 / 0.08), transparent 42%),
+    #12151b;
+}
+
+.run-state {
+  flex: 0 0 auto;
+  padding: 5px 9px;
+  border: 1px solid rgb(255 255 255 / 0.14);
+  border-radius: 6px;
+  color: #b9c1cf;
+  font: 800 12px Arial, sans-serif;
+}
+
+.run-state.is-live {
+  border-color: rgb(71 220 142 / 0.48);
+  color: #47dc8e;
+}
+
+.run-tools-grid {
+  display: grid;
+  grid-template-columns: 1fr 0.55fr 0.65fr;
+  gap: 9px;
+}
+
+.run-tools-meta strong {
+  min-width: 0;
+  margin-top: 4px;
+  overflow: hidden;
+  color: #f5f7fb;
+  font: 800 13px Arial, sans-serif;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.run-actions,
+.match-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.run-actions button:first-child {
+  border-color: rgb(116 211 255 / 0.35);
+  background: #1a2630;
+  color: #74d3ff;
 }
 
 .match-stats-status {
@@ -1336,14 +1432,15 @@ body {
   background: #0c1016;
 }
 
-.match-item div {
+.match-item > div:first-child {
   min-width: 0;
   display: grid;
   gap: 3px;
 }
 
 .match-item strong,
-.match-item span {
+.match-item span,
+.match-item em {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1356,7 +1453,8 @@ body {
 
 .danger-button,
 .match-item button[data-match-delete],
-.player-row button[data-player-delete] {
+.player-row button[data-player-delete],
+.run-actions .danger-button {
   border-color: rgb(255 120 120 / 0.35);
   color: #ff9d9d;
 }
@@ -1471,6 +1569,21 @@ body {
 
 @media (max-width: 900px) {
   .control-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .run-tools-grid,
+  .manager-stats {
+    grid-template-columns: 1fr;
+  }
+
+  .inline-form,
+  .match-item {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .player-row {
     grid-template-columns: 1fr;
   }
 }
@@ -1646,4 +1759,472 @@ body {
     animation-iteration-count: 1 !important;
     transition-duration: 1ms !important;
   }
+}
+
+/* === Live UI animations === */
+
+/* 1. Points pulse: brief flash when a team scores */
+.team-row.points-up .points {
+  animation: points-pulse calc(900ms / var(--anim-speed)) cubic-bezier(0.2, 0.9, 0.2, 1) both;
+}
+
+@keyframes points-pulse {
+  0% {
+    transform: scale(1);
+    color: var(--text);
+    text-shadow: none;
+  }
+  25% {
+    transform: scale(1.18);
+    color: var(--header);
+    text-shadow: 0 0 14px rgb(var(--header-rgb) / 0.8), 0 0 4px rgb(var(--accent-rgb) / 0.6);
+  }
+  60% {
+    transform: scale(1.06);
+    color: var(--header);
+    text-shadow: 0 0 8px rgb(var(--header-rgb) / 0.55);
+  }
+  100% {
+    transform: scale(1);
+    color: var(--text);
+    text-shadow: none;
+  }
+}
+
+/* 2. Alive bars: smooth red->grey when an ally drops */
+.alive-bars .bar {
+  transition:
+    background-color calc(420ms / var(--anim-speed)) cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow calc(420ms / var(--anim-speed)) ease,
+    opacity calc(420ms / var(--anim-speed)) ease;
+}
+
+.scoreboard.anim-off .alive-bars .bar {
+  transition: none;
+}
+
+/* 3. Event feed entry/exit: stagger from the right with subtle scale */
+.event-feed {
+  perspective: 600px;
+}
+
+.event-item {
+  transform-origin: left center;
+  transition:
+    background calc(320ms / var(--anim-speed)) ease,
+    border-color calc(320ms / var(--anim-speed)) ease;
+}
+
+.event-item.event-new {
+  animation: event-in calc(520ms / var(--anim-speed)) cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.scoreboard.anim-off .event-item.event-new {
+  animation: none;
+}
+
+@keyframes event-in {
+  0% {
+    opacity: 0;
+    transform: translateX(28px) scale(0.94);
+    border-left-color: rgb(var(--header-rgb) / 0.95);
+    box-shadow: 0 0 14px rgb(var(--accent-rgb) / 0.55);
+  }
+  60% {
+    opacity: 1;
+    transform: translateX(-3px) scale(1.012);
+    box-shadow: 0 0 10px rgb(var(--accent-rgb) / 0.32);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+    border-left-color: var(--accent);
+    box-shadow: none;
+  }
+}
+
+/* Highlight type-specific event tags briefly when new */
+.event-item.event-new .event-tag {
+  animation: event-tag-flash calc(700ms / var(--anim-speed)) ease-out both;
+}
+
+.event-item.event-team_eliminated .event-tag {
+  color: var(--accent);
+}
+
+@keyframes event-tag-flash {
+  0%,
+  100% {
+    text-shadow: none;
+  }
+  35% {
+    text-shadow: 0 0 8px rgb(var(--header-rgb) / 0.85);
+  }
+}
+
+/* 4. Eliminated cards: dramatic entry with a podium boost on top 3 */
+.eliminated-card {
+  transform-origin: left center;
+}
+
+.eliminated-card.card-new {
+  animation: elim-card-in 700ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.eliminated-card.card-new.elim-podium-1 {
+  animation-duration: 900ms;
+}
+
+@keyframes elim-card-in {
+  0% {
+    opacity: 0;
+    transform: translateX(-32px) scale(0.92);
+    box-shadow: 0 0 0 rgb(var(--accent-rgb) / 0);
+  }
+  35% {
+    opacity: 1;
+    transform: translateX(4px) scale(1.025);
+    box-shadow: 0 0 24px rgb(var(--accent-rgb) / 0.55);
+  }
+  70% {
+    transform: translateX(0) scale(1);
+    box-shadow: 0 0 12px rgb(var(--accent-rgb) / 0.35);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+    box-shadow: 0 0 0 rgb(var(--accent-rgb) / 0);
+  }
+}
+
+.eliminated-card.elim-podium-1 .elim-rank,
+.eliminated-card.elim-podium-2 .elim-rank,
+.eliminated-card.elim-podium-3 .elim-rank {
+  animation: elim-rank-flicker 2.6s ease-in-out infinite;
+}
+
+.eliminated-card.elim-podium-1 .elim-rank {
+  color: #ffd166;
+  text-shadow: 0 0 10px rgb(255 209 102 / 0.6);
+}
+
+.eliminated-card.elim-podium-2 .elim-rank {
+  color: #d6dee8;
+  text-shadow: 0 0 8px rgb(214 222 232 / 0.5);
+}
+
+.eliminated-card.elim-podium-3 .elim-rank {
+  color: #c97f4d;
+  text-shadow: 0 0 8px rgb(201 127 77 / 0.45);
+}
+
+@keyframes elim-rank-flicker {
+  0%,
+  100% {
+    filter: brightness(1);
+  }
+  50% {
+    filter: brightness(1.18);
+  }
+}
+
+/* 5. Winrate row pulse on percent change */
+.winrate-row {
+  transition:
+    background calc(360ms / var(--anim-speed)) ease,
+    border-left-color calc(360ms / var(--anim-speed)) ease,
+    transform calc(360ms / var(--anim-speed)) ease;
+}
+
+.winrate-row.wr-up .wr-percent {
+  animation: wr-up-pulse calc(820ms / var(--anim-speed)) ease-out both;
+}
+
+.winrate-row.wr-down .wr-percent {
+  animation: wr-down-pulse calc(820ms / var(--anim-speed)) ease-out both;
+}
+
+.scoreboard.anim-off .winrate-row.wr-up .wr-percent,
+.scoreboard.anim-off .winrate-row.wr-down .wr-percent {
+  animation: none;
+}
+
+@keyframes wr-up-pulse {
+  0% {
+    transform: scale(1);
+    color: var(--header);
+    text-shadow: none;
+  }
+  35% {
+    transform: scale(1.12);
+    color: #66e39f;
+    text-shadow: 0 0 10px rgb(102 227 159 / 0.65);
+  }
+  100% {
+    transform: scale(1);
+    color: var(--header);
+    text-shadow: none;
+  }
+}
+
+@keyframes wr-down-pulse {
+  0% {
+    transform: scale(1);
+    color: var(--header);
+    text-shadow: none;
+  }
+  35% {
+    transform: scale(0.94);
+    color: #ff867c;
+    text-shadow: 0 0 8px rgb(255 134 124 / 0.55);
+  }
+  100% {
+    transform: scale(1);
+    color: var(--header);
+    text-shadow: none;
+  }
+}
+
+/* 6. Podium row: gentle sustained breath on top 3 */
+.scoreboard.anim-on .team-row.podium-row {
+  animation: podium-breath 5.4s ease-in-out infinite;
+  animation-delay: calc(var(--row-index, 0) * 220ms);
+}
+
+.scoreboard.anim-on .team-row.podium-row.rank-moving {
+  animation: none;
+}
+
+@keyframes podium-breath {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 5px rgb(var(--header-rgb) / 0.4));
+  }
+  50% {
+    filter: drop-shadow(0 0 12px rgb(var(--header-rgb) / 0.65));
+  }
+}
+
+/* 7. Match ended: subtle celebratory border sheen and dim non-podium rows */
+.scoreboard.match-ended {
+  animation: match-end-glow 2.8s ease-in-out infinite alternate;
+}
+
+.scoreboard.match-ended .team-row:not(.podium-row) {
+  filter: saturate(0.85) brightness(0.9);
+}
+
+.scoreboard.match-ended .team-row.podium-row {
+  animation: podium-breath 3.2s ease-in-out infinite;
+}
+
+@keyframes match-end-glow {
+  from {
+    filter: drop-shadow(0 0 10px rgb(var(--header-rgb) / 0.24));
+  }
+  to {
+    filter: drop-shadow(0 0 22px rgb(var(--header-rgb) / 0.55));
+  }
+}
+
+/* 8. Sharper player-lost: brighter accent edge with brief shake */
+.scoreboard.lost-shake .team-row.player-lost {
+  animation: danger-shake-strong calc(560ms / var(--anim-speed)) cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+}
+
+.scoreboard.lost-pulse .team-row.player-lost {
+  animation: danger-pulse-strong calc(640ms / var(--anim-speed)) ease-out both;
+}
+
+@keyframes danger-shake-strong {
+  0%,
+  100% {
+    translate: 0 0;
+    filter: none;
+  }
+  10% {
+    translate: -5px 0;
+    filter: brightness(1.15);
+  }
+  25% {
+    translate: 6px 0;
+    filter: brightness(1.2) drop-shadow(0 0 12px rgb(var(--accent-rgb) / 0.4));
+  }
+  45% {
+    translate: -3px 0;
+    filter: brightness(1.1);
+  }
+  65% {
+    translate: 3px 0;
+  }
+  85% {
+    translate: -1px 0;
+  }
+}
+
+@keyframes danger-pulse-strong {
+  0%,
+  100% {
+    filter: none;
+    box-shadow: none;
+  }
+  35% {
+    filter: brightness(1.3) drop-shadow(0 0 14px rgb(var(--accent-rgb) / 0.45));
+  }
+}
+
+/* === Row styles ===
+ * The base rules above implement `classic`. The variants below override
+ * the polygon clip-path artwork to deliver distinctly different looks.
+ */
+
+/* Flat: clean rectangle with a thin accent stripe on the left. */
+.scoreboard.row-style-flat .team-row::before {
+  clip-path: none;
+  inset: 0 auto 0 0;
+  width: 4px;
+  background: var(--team-accent, var(--accent));
+  border-radius: 2px 0 0 2px;
+}
+
+.scoreboard.row-style-flat .team-row::after {
+  clip-path: none;
+  inset: 0 0 0 4px;
+  background: rgb(var(--panel-rgb) / 0.94);
+  border-radius: 0 6px 6px 0;
+}
+
+.scoreboard.row-style-flat .team-row.podium-row {
+  filter: drop-shadow(0 0 6px rgb(var(--header-rgb) / 0.32));
+}
+
+.scoreboard.row-style-flat .team-row.podium-row::before {
+  width: 5px;
+  background: linear-gradient(180deg, var(--accent), var(--header));
+}
+
+.scoreboard.row-style-flat .team-row.podium-row::after {
+  background: linear-gradient(90deg, rgb(var(--accent-rgb) / 0.18), rgb(var(--panel-rgb) / 0.96) 65%);
+}
+
+.scoreboard.row-style-flat .rank,
+.scoreboard.row-style-gradient .rank,
+.scoreboard.row-style-minimal .rank,
+.scoreboard.row-style-neon .rank {
+  clip-path: none;
+  padding-right: 0;
+}
+
+.scoreboard.row-style-flat .rank::before,
+.scoreboard.row-style-gradient .rank::before,
+.scoreboard.row-style-minimal .rank::before,
+.scoreboard.row-style-neon .rank::before {
+  clip-path: none;
+  background: transparent;
+}
+
+.scoreboard.row-style-flat .team-row.podium-row .rank,
+.scoreboard.row-style-gradient .team-row.podium-row .rank {
+  color: var(--header);
+}
+
+/* Gradient: warm wash from accent to panel across the full row. */
+.scoreboard.row-style-gradient .team-row::before {
+  clip-path: none;
+  inset: 0;
+  background: linear-gradient(90deg, var(--team-accent, var(--accent)), transparent 75%);
+  opacity: 0.55;
+  border-radius: 6px;
+}
+
+.scoreboard.row-style-gradient .team-row::after {
+  clip-path: none;
+  inset: 0;
+  background: linear-gradient(90deg, rgb(var(--accent-rgb) / 0.2), rgb(var(--panel-rgb) / 0.92) 65%);
+  border-radius: 6px;
+}
+
+.scoreboard.row-style-gradient .team-row.podium-row::before {
+  background: linear-gradient(90deg, var(--accent), var(--header));
+  opacity: 0.85;
+}
+
+.scoreboard.row-style-gradient .team-row.podium-row::after {
+  background: linear-gradient(90deg, rgb(var(--accent-rgb) / 0.36), rgb(var(--panel-rgb) / 0.95));
+}
+
+/* Minimal: just text on transparent rows divided by faint hairlines. */
+.scoreboard.row-style-minimal .team-row {
+  margin-bottom: 0;
+  border-bottom: 1px solid rgb(var(--muted-rgb) / 0.2);
+}
+
+.scoreboard.row-style-minimal .team-row::before,
+.scoreboard.row-style-minimal .team-row::after {
+  display: none;
+}
+
+.scoreboard.row-style-minimal .score-rows .team-row:first-child {
+  border-top: 1px solid rgb(var(--muted-rgb) / 0.2);
+}
+
+.scoreboard.row-style-minimal .team-row.podium-row {
+  filter: none;
+  border-bottom-color: rgb(var(--header-rgb) / 0.5);
+}
+
+.scoreboard.row-style-minimal .team-row.podium-row .rank {
+  color: var(--header);
+}
+
+/* Neon: lit outline with a soft inner glow. */
+.scoreboard.row-style-neon .team-row::before {
+  clip-path: none;
+  inset: 0;
+  background: transparent;
+  border: 1px solid var(--team-accent, var(--accent));
+  border-radius: 6px;
+  box-shadow:
+    0 0 12px rgb(var(--accent-rgb) / 0.45),
+    inset 0 0 10px rgb(var(--accent-rgb) / 0.22);
+}
+
+.scoreboard.row-style-neon .team-row::after {
+  clip-path: none;
+  inset: 1px;
+  background: rgb(var(--panel-rgb) / 0.7);
+  border-radius: 5px;
+}
+
+.scoreboard.row-style-neon .team-row.podium-row {
+  filter: none;
+}
+
+.scoreboard.row-style-neon .team-row.podium-row::before {
+  border-color: var(--header);
+  box-shadow:
+    0 0 18px rgb(var(--header-rgb) / 0.65),
+    inset 0 0 14px rgb(var(--header-rgb) / 0.32);
+}
+
+.scoreboard.row-style-neon .team-row.podium-row::after {
+  background: rgb(var(--panel-rgb) / 0.74);
+}
+
+.scoreboard.row-style-neon .team-row .rank {
+  text-shadow: 0 0 8px rgb(var(--accent-rgb) / 0.6);
+}
+
+.scoreboard.row-style-neon .team-row.podium-row .rank {
+  color: var(--header);
+  text-shadow: 0 0 10px rgb(var(--header-rgb) / 0.75);
+}
+
+.scoreboard.row-style-neon .points {
+  text-shadow: 0 0 8px rgb(var(--header-rgb) / 0.5);
+}
+
+.scoreboard.row-style-neon .alive-bars .bar {
+  transform: skewX(0);
+  border-radius: 2px;
 }

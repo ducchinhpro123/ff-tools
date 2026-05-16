@@ -56,6 +56,10 @@ export class ScoreboardState {
   private eventCounter = 0;
   private eliminatedEventCounter = 0;
   private scoreOrderCounter = 0;
+  private hasSeenTeamInit = false;
+  private onMatchStart: (() => void) | null = null;
+  private matchStartDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private matchStartDebounceMs = 500;
   sourceLog: string | null = null;
   sourceLogUpdatedAt: string | null = null;
   matchEnded = false;
@@ -78,9 +82,28 @@ export class ScoreboardState {
     this.eventCounter = 0;
     this.eliminatedEventCounter = 0;
     this.scoreOrderCounter = 0;
+    this.hasSeenTeamInit = false;
+    if (this.matchStartDebounceTimer) {
+      clearTimeout(this.matchStartDebounceTimer);
+      this.matchStartDebounceTimer = null;
+    }
     this.sourceLog = sourceLog;
     this.sourceLogUpdatedAt = null;
     this.matchEnded = false;
+  }
+
+  setOnMatchStart(callback: (() => void) | null, debounceMs?: number): void {
+    this.onMatchStart = callback;
+    if (typeof debounceMs === "number" && debounceMs >= 0) {
+      this.matchStartDebounceMs = debounceMs;
+    }
+  }
+
+  flushMatchStartDebounce(): void {
+    if (!this.matchStartDebounceTimer) return;
+    clearTimeout(this.matchStartDebounceTimer);
+    this.matchStartDebounceTimer = null;
+    this.onMatchStart?.();
   }
 
   setTeamConfig(configs: TeamConfig[]): void {
@@ -130,6 +153,7 @@ export class ScoreboardState {
     if (teamInit) {
       const teamId = Number(teamInit[2]);
       this.ensureTeam(teamId).logName = teamInit[1].trim();
+      this.handleTeamInitForMatchStart();
       return true;
     }
 
@@ -421,6 +445,36 @@ export class ScoreboardState {
     const team = scoreTeamId ? this.teams.get(scoreTeamId) : undefined;
     const config = scoreTeamId ? this.teamConfig.get(scoreTeamId) : undefined;
     return team?.logName || config?.displayName || config?.shortName || "";
+  }
+
+  private handleTeamInitForMatchStart(): void {
+    // Treat a teamInit as a "new match start" trigger when either:
+    //   - this is the first teamInit since the listener (re)started, or
+    //   - the previous match emitted MatchEnd and this is the first teamInit since.
+    const isNewMatch = !this.hasSeenTeamInit || this.matchEnded;
+    if (!isNewMatch) {
+      // Subsequent teamInit lines within the same match (one per team) shouldn't refire.
+      this.hasSeenTeamInit = true;
+      return;
+    }
+
+    this.hasSeenTeamInit = true;
+    this.matchEnded = false;
+
+    if (!this.onMatchStart) return;
+
+    if (this.matchStartDebounceTimer) {
+      clearTimeout(this.matchStartDebounceTimer);
+    }
+    if (this.matchStartDebounceMs <= 0) {
+      this.matchStartDebounceTimer = null;
+      this.onMatchStart();
+      return;
+    }
+    this.matchStartDebounceTimer = setTimeout(() => {
+      this.matchStartDebounceTimer = null;
+      this.onMatchStart?.();
+    }, this.matchStartDebounceMs);
   }
 
   private updateCurrentEvent(line: string): void {

@@ -108,6 +108,7 @@ interface OverlayConfig {
   rowEnterAnimation: string;
   playerLostAnimation: string;
   animationSpeed: number;
+  rowStyle: string;
 }
 
 interface PublicConfig {
@@ -117,6 +118,14 @@ interface PublicConfig {
 interface LogSource {
   path: string | null;
   mode: "auto" | "file";
+  running?: boolean;
+  currentPath?: string | null;
+}
+
+interface ListenerState {
+  listenerID: string | null;
+  running: boolean;
+  logSource: LogSource;
 }
 
 interface ManagedGroupMatch {
@@ -164,6 +173,10 @@ let state: PublicState = {
 
 let previousRows = new Map<number, TeamRow>();
 let currentRows = new Map<number, TeamRow>();
+let knownEventIds = new Set<string>();
+let knownEliminatedIds = new Set<string>();
+let previousWinRates = new Map<number, number>();
+let scorePulseUntil = new Map<number, number>();
 
 let config: PublicConfig = {
   overlay: {
@@ -186,18 +199,28 @@ let config: PublicConfig = {
     moveAnimation: "glide",
     rowEnterAnimation: "slide",
     playerLostAnimation: "pulse",
-    animationSpeed: 1
+    animationSpeed: 1,
+    rowStyle: "classic"
   }
 };
 
 let logSource: LogSource = {
   path: null,
-  mode: "auto"
+  mode: "auto",
+  running: false,
+  currentPath: null
+};
+let listenerState: ListenerState = {
+  listenerID: null,
+  running: false,
+  logSource
 };
 let groups: ManagedGroup[] = [];
 let players: ManagedPlayer[] = [];
 let logPathDraft: string | null = null;
 let logSourceError = "";
+let listenerMessage = "";
+let listenerBusy = false;
 let activeControlTab: ControlTab = "overlay";
 let selectedGroupId = "";
 let groupSearch = "";
@@ -220,17 +243,20 @@ const isTerminal = pageMode === "terminal";
 const isMatchDetails = pageMode === "match-details";
 
 async function boot(): Promise<void> {
-  const [stateResponse, configResponse, logSourceResponse, groupsResponse, playersResponse] = await Promise.all([
+  const [stateResponse, configResponse, logSourceResponse, groupsResponse, playersResponse, healthResponse] = await Promise.all([
     fetch("/api/state"),
     fetch("/api/config"),
     fetch("/api/log-source"),
     fetch("/api/groups"),
-    fetch("/api/players")
+    fetch("/api/players"),
+    fetch("/api/health")
   ]);
   state = await stateResponse.json();
   config = await configResponse.json();
   config.overlay = normalizeOverlayClientConfig(config.overlay);
   logSource = await logSourceResponse.json();
+  listenerState = normalizeListenerState((await healthResponse.json())?.listener);
+  logSource = { ...logSource, ...listenerState.logSource };
   groups = normalizeGroups(await groupsResponse.json());
   players = normalizePlayers(await playersResponse.json());
   selectedGroupId = groups[0]?.groupId || "";
@@ -249,12 +275,33 @@ function connectSocket(): void {
       previousRows = currentRows;
       state = payload.state;
       currentRows = new Map(state.teams.map((team) => [team.teamId, team]));
+
+      // Detect score increases and stamp a transient pulse end-time.
+      const now = Date.now();
+      const pulseDurationMs = 1400;
+      for (const [teamId, row] of currentRows) {
+        const prior = previousRows.get(teamId);
+        if (prior && row.liveScore > prior.liveScore) {
+          scorePulseUntil.set(teamId, now + pulseDurationMs);
+        }
+      }
+      // Drop expired pulses
+      for (const [teamId, until] of scorePulseUntil) {
+        if (until <= now) scorePulseUntil.delete(teamId);
+      }
     }
     if (payload.config) {
       config = payload.config;
       config.overlay = normalizeOverlayClientConfig(config.overlay);
     }
-    if (payload.logSource) logSource = payload.logSource;
+    if (payload.logSource) {
+      logSource = payload.logSource;
+      listenerState = {
+        ...listenerState,
+        running: Boolean(payload.logSource.running),
+        logSource: payload.logSource
+      };
+    }
     render();
   };
 
@@ -401,9 +448,10 @@ function renderOverlay(animateBoard = false, animationPreview: AnimationPreviewK
     ? `anim-on move-${c.moveAnimation} enter-${c.rowEnterAnimation} lost-${c.playerLostAnimation}`
     : "anim-off move-off enter-off lost-off";
   const previewClass = animationPreview && c.animationEnabled ? `demo-${animationPreview}` : "";
+  const rowStyleClass = `row-style-${c.rowStyle || "classic"}`;
 
   return `
-    <section class="scoreboard ${animateBoard ? "board-enter" : ""} ${previewClass} ${animationClasses} ${state.matchEnded ? "match-ended" : ""}" style="${panelStyle}">
+    <section class="scoreboard ${animateBoard ? "board-enter" : ""} ${previewClass} ${animationClasses} ${rowStyleClass} ${state.matchEnded ? "match-ended" : ""}" style="${panelStyle}">
       <div class="leaderboard-inner">
         <header class="score-header">
           <span class="header-spacer"></span>
@@ -454,7 +502,8 @@ function renderWinRateOverlay(animateBoard = false): string {
     `--muted-rgb:${hexToRgbTriplet(c.mutedColor)}`
   ].join(";");
 
-  return `
+  const nextRates = new Map<number, number>();
+  const html = `
     <section class="scoreboard winrate-board ${animateBoard ? "board-enter" : ""}" style="${panelStyle}">
       <div class="leaderboard-inner">
         <header class="score-header winrate-header">
@@ -465,16 +514,26 @@ function renderWinRateOverlay(animateBoard = false): string {
           <span>WIN RATE</span>
         </header>
         <div class="winrate-rows">
-          ${rows.map(renderWinRateRow).join("") || `<div class="empty-overlay">WAITING FOR LIVE DATA</div>`}
+          ${rows
+            .map((row) => {
+              const previous = previousWinRates.get(row.teamId);
+              nextRates.set(row.teamId, row.winRate);
+              const direction =
+                previous === undefined ? "" : row.winRate > previous ? "wr-up" : row.winRate < previous ? "wr-down" : "";
+              return renderWinRateRow(row, direction);
+            })
+            .join("") || `<div class="empty-overlay">WAITING FOR LIVE DATA</div>`}
         </div>
       </div>
     </section>
   `;
+  previousWinRates = nextRates;
+  return html;
 }
 
-function renderWinRateRow(row: WinRateRow): string {
+function renderWinRateRow(row: WinRateRow, direction = ""): string {
   return `
-    <article class="winrate-row ${row.teamEliminated ? "is-out" : ""}" style="--team-accent:${row.accentColor}">
+    <article class="winrate-row ${row.teamEliminated ? "is-out" : ""} ${direction}" data-team-id="${row.teamId}" style="--team-accent:${row.accentColor}">
       <span class="wr-rank">#${row.rank}</span>
       <span class="wr-team">
         ${row.logoPath ? `<img src="${escapeHtml(row.logoPath)}" alt="" />` : `<i>${escapeHtml(row.shortName.slice(0, 2))}</i>`}
@@ -508,21 +567,32 @@ function renderEliminatedOverlay(animateBoard = false): string {
     `--muted-rgb:${hexToRgbTriplet(c.mutedColor)}`
   ].join(";");
 
+  const seenNow = new Set<string>();
+  const cards = events
+    .map((event) => {
+      seenNow.add(event.id);
+      const isNew = !knownEliminatedIds.has(event.id);
+      return renderEliminatedCard(event, isNew);
+    })
+    .join("");
+  knownEliminatedIds = seenNow;
+
   return `
     <section class="scoreboard eliminated-board ${animateBoard ? "board-enter" : ""}" style="${panelStyle}">
       <div class="leaderboard-inner">
         <header class="eliminated-title">ELIMINATED</header>
         <div class="eliminated-list">
-          ${events.map(renderEliminatedCard).join("") || `<div class="empty-overlay">NO TEAM ELIMINATED</div>`}
+          ${cards || `<div class="empty-overlay">NO TEAM ELIMINATED</div>`}
         </div>
       </div>
     </section>
   `;
 }
 
-function renderEliminatedCard(event: PublicEliminatedEvent): string {
+function renderEliminatedCard(event: PublicEliminatedEvent, isNew = false): string {
+  const podiumClass = event.rank <= 3 ? `elim-podium elim-podium-${event.rank}` : "";
   return `
-    <article class="eliminated-card" style="--team-accent:${event.accentColor}">
+    <article class="eliminated-card ${podiumClass} ${isNew ? "card-new" : ""}" data-event-id="${escapeAttribute(event.id)}" style="--team-accent:${event.accentColor}">
       <div class="elim-logo">
         ${event.logoPath ? `<img src="${escapeHtml(event.logoPath)}" alt="" />` : `<span>${escapeHtml(event.shortName.slice(0, 2))}</span>`}
       </div>
@@ -590,22 +660,30 @@ function renderEventFeed(): string {
   const events = (state.events || []).slice(0, 3);
   if (events.length === 0) return "";
 
-  return `
+  const seenNow = new Set<string>();
+  const html = `
     <div class="event-feed">
       ${events
-        .map(
-          (event) => `
-            <article class="event-item event-${event.type}" title="${escapeAttribute(event.message)}">
+        .map((event) => {
+          seenNow.add(event.id);
+          const isNew = !knownEventIds.has(event.id);
+          return `
+            <article class="event-item event-${event.type} ${isNew ? "event-new" : ""}" data-event-id="${escapeAttribute(event.id)}" title="${escapeAttribute(event.message)}">
               <span class="event-tag">${eventLabel(event)}</span>
               <span class="event-killer">${formatEventName(eventPrimaryName(event), eventPrimaryTeam(event))}</span>
               <span class="event-arrow">></span>
               <span class="event-downed">${formatEventName(eventSecondaryName(event), eventSecondaryTeam(event))}</span>
             </article>
-          `
-        )
+          `;
+        })
         .join("")}
     </div>
   `;
+
+  // Update known set: keep currently visible ids only so we re-animate when an old
+  // event scrolls back in if it ever does (unlikely but harmless).
+  knownEventIds = seenNow;
+  return html;
 }
 
 function eventLabel(event: PublicEvent): string {
@@ -700,6 +778,7 @@ function renderTeamRow(
   const demoLost = animationPreview === "lost" && index === 0;
   const demoMovedUp = animationPreview === "move" && index === 1;
   const demoMovedDown = animationPreview === "move" && index === 0;
+  const scorePulseActive = animationsEnabled && (scorePulseUntil.get(team.teamId) || 0) > Date.now();
   const rowClasses = [
     "team-row",
     animationsEnabled && c.rowEnterAnimation !== "off" && (!previous || demoEnter) ? "new-row" : "",
@@ -707,7 +786,8 @@ function renderTeamRow(
     isEliminated ? "team-eliminated" : "",
     animationsEnabled && c.moveAnimation !== "off" && (rankChange > 0 || demoMovedUp) ? "moved-up" : "",
     animationsEnabled && c.moveAnimation !== "off" && (rankChange < 0 || demoMovedDown) ? "moved-down" : "",
-    team.rank <= 3 ? "podium-row" : ""
+    team.rank <= 3 ? "podium-row" : "",
+    scorePulseActive ? "points-up" : ""
   ]
     .filter(Boolean)
     .join(" ");
@@ -807,6 +887,13 @@ function renderOverlayControls(): string {
       ${colorInput("textColor", "Màu chữ", c.textColor)}
       ${colorInput("mutedColor", "Màu phụ", c.mutedColor)}
       ${colorResetButton()}
+      ${selectInput("rowStyle", "Kiểu dòng", c.rowStyle, [
+        ["classic", "Cổ điển"],
+        ["flat", "Phẳng"],
+        ["gradient", "Gradient"],
+        ["minimal", "Tối giản"],
+        ["neon", "Neon"]
+      ])}
       ${toggleInput("animationEnabled", "Hiệu ứng", c.animationEnabled)}
       ${selectInput("moveAnimation", "Đổi hạng", c.moveAnimation, [
         ["glide", "Lướt"],
@@ -1065,10 +1152,121 @@ async function saveLogSource(filePath: string): Promise<void> {
   render();
 }
 
+async function createAndStartListener(): Promise<void> {
+  const selected = getSelectedGroup();
+  const filePath = normalizeText(logPathDraft ?? logSource.path ?? state.sourceLog);
+  listenerMessage = "";
+
+  if (!selected) {
+    listenerMessage = "Chọn hoặc tạo nhóm trước khi chạy tools.";
+    render();
+    return;
+  }
+
+  if (!filePath) {
+    listenerMessage = "Nhập đường dẫn file log debugger.";
+    render();
+    return;
+  }
+
+  listenerBusy = true;
+  listenerMessage = "Đang tạo listener...";
+  render();
+
+  try {
+    const createResponse = await fetch("/create-listener", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        filePath,
+        selectedGroupId: selected.groupId,
+        global: { players },
+        groups: groups.map((group) => ({
+          groupId: group.groupId,
+          matchIds: group.matches.map((match) => match.matchId),
+          teamNames: group.teamNames,
+          note: group.note
+        }))
+      })
+    });
+    const createResult = await createResponse.json().catch(() => ({}));
+    if (!createResponse.ok) throw new Error(createResult.message || `HTTP ${createResponse.status}`);
+
+    listenerState = {
+      listenerID: String(createResult.listenerID || ""),
+      running: false,
+      logSource: { ...logSource, path: filePath, mode: "file" }
+    };
+    logSource = listenerState.logSource;
+    logPathDraft = filePath;
+
+    listenerMessage = "Đang start listener...";
+    render();
+    await updateListenerLifecycle("start-listener", `Đang chạy ${selected.groupId}`, false);
+  } catch (error) {
+    listenerMessage = error instanceof Error ? error.message : String(error);
+  } finally {
+    listenerBusy = false;
+    render();
+  }
+}
+
+async function updateListenerLifecycle(endpoint: "start-listener" | "stop-listener" | "kill-listener", successMessage: string, manageBusy = true): Promise<void> {
+  if (!listenerState.listenerID) {
+    listenerMessage = "Chưa có listener để thao tác.";
+    render();
+    return;
+  }
+
+  if (manageBusy) {
+    listenerBusy = true;
+    listenerMessage = "Đang xử lý listener...";
+    render();
+  }
+
+  try {
+    const response = await fetch(`/${endpoint}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ listenerID: listenerState.listenerID })
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.message || `HTTP ${response.status}`);
+
+    listenerState = normalizeListenerState(result, listenerState.listenerID);
+    if (endpoint === "kill-listener") listenerState.listenerID = null;
+    logSource = { ...logSource, ...listenerState.logSource };
+    listenerMessage = successMessage;
+  } catch (error) {
+    listenerMessage = error instanceof Error ? error.message : String(error);
+  } finally {
+    if (manageBusy) {
+      listenerBusy = false;
+      render();
+    }
+  }
+}
+
 function bindGroupManagerEvents(): void {
   app.querySelector<HTMLInputElement>("[data-group-search]")?.addEventListener("input", (event) => {
     groupSearch = (event.target as HTMLInputElement).value;
     render();
+  });
+
+  app.querySelector<HTMLInputElement>("[data-run-file-path]")?.addEventListener("input", (event) => {
+    logPathDraft = (event.target as HTMLInputElement).value;
+  });
+
+  app.querySelector<HTMLButtonElement>("[data-run-create-start]")?.addEventListener("click", () => {
+    void createAndStartListener();
+  });
+
+  app.querySelector<HTMLButtonElement>("[data-run-stop]")?.addEventListener("click", () => {
+    void updateListenerLifecycle("stop-listener", "Đã dừng listener");
+  });
+
+  app.querySelector<HTMLButtonElement>("[data-run-kill]")?.addEventListener("click", () => {
+    void updateListenerLifecycle("kill-listener", "Đã hủy listener");
   });
 
   app.querySelector<HTMLFormElement>("[data-group-form]")?.addEventListener("submit", (event) => {
@@ -1157,14 +1355,27 @@ function bindGroupManagerEvents(): void {
     const selected = getSelectedGroup();
     if (!selected) return;
     const data = new FormData(event.currentTarget);
-    const matchId = normalizeText(data.get("matchId"));
-    if (!matchId || selected.matches.some((match) => match.matchId === matchId)) return;
-    selected.matches.push({
-      matchId,
-      description: normalizeText(data.get("description")),
-      addTime: new Date().toISOString()
-    });
+    const matchIds = parseMatchIds(normalizeText(data.get("matchId")));
+    const description = normalizeText(data.get("description"));
+    const existing = new Set(selected.matches.map((match) => match.matchId));
+    const createdAt = new Date().toISOString();
+    const nextMatches = matchIds
+      .filter((matchId) => !existing.has(matchId))
+      .map((matchId) => ({
+        matchId,
+        description,
+        addTime: createdAt
+      }));
+    if (nextMatches.length === 0) return;
+    selected.matches.push(...nextMatches);
     void saveGroups();
+  });
+
+  app.querySelectorAll<HTMLButtonElement>("[data-match-open]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const matchId = button.dataset.matchOpen || "";
+      if (matchId) window.open(`/match-details?matchId=${encodeURIComponent(matchId)}`, "_blank");
+    });
   });
 
   app.querySelectorAll<HTMLButtonElement>("[data-match-delete]").forEach((button) => {
@@ -1393,6 +1604,8 @@ function renderGroupManager(): string {
     return haystack.includes(groupSearch.toLowerCase());
   });
   const teamNames = uniqueTeamNames();
+  const totalMatches = groups.reduce((sum, group) => sum + group.matches.length, 0);
+  const totalTeams = groups.reduce((sum, group) => sum + group.teamNames.length, 0);
 
   return `
     <section class="manager-panel">
@@ -1408,6 +1621,12 @@ function renderGroupManager(): string {
           </label>
           <button type="button" data-group-export>Xuất</button>
         </div>
+      </div>
+
+      <div class="manager-stats">
+        <div><span>Nhóm</span><strong>${groups.length}</strong></div>
+        <div><span>Trận</span><strong>${totalMatches}</strong></div>
+        <div><span>Đội hôm nay</span><strong>${totalTeams}</strong></div>
       </div>
 
       <form class="manager-form" data-group-form>
@@ -1430,6 +1649,8 @@ function renderGroupManager(): string {
         }
       </div>
 
+      ${renderRunToolsPanel(selectedGroup)}
+
       <div class="detail-panel">
         ${
           selectedGroup
@@ -1440,6 +1661,7 @@ function renderGroupManager(): string {
                   <h3>${escapeHtml(selectedGroup.groupId)}</h3>
                 </div>
                 <div class="manager-actions">
+                  ${selectedGroup.matches[0] ? `<button type="button" data-match-open="${escapeAttribute(selectedGroup.matches[0].matchId)}">Xem trận đầu</button>` : ""}
                   <button type="button" data-match-stats-apply ${matchStatsLoading ? "disabled" : ""}>${matchStatsLoading ? "Đang áp dụng..." : "Áp dụng điểm"}</button>
                   <button type="button" class="danger-button" data-group-delete="${escapeAttribute(selectedGroup.groupId)}">Xóa</button>
                 </div>
@@ -1461,9 +1683,9 @@ function renderGroupManager(): string {
                 <button type="submit">Lưu nhóm</button>
               </form>
               <form class="inline-form" data-match-form>
-                <input name="matchId" placeholder="ID trận" required />
+                <input name="matchId" placeholder="Một hoặc nhiều ID trận" required />
                 <input name="description" placeholder="Mô tả" />
-                <button type="submit">Thêm trận</button>
+                <button type="submit">Thêm</button>
               </form>
               <div class="chip-row">
                 ${teamNames.length ? teamNames.map((name) => `<button type="button" data-team-chip="${escapeAttribute(name)}">${escapeHtml(name)}</button>`).join("") : `<span>Chưa có đội từ danh sách người chơi.</span>`}
@@ -1483,6 +1705,54 @@ function renderGroupManager(): string {
   `;
 }
 
+function renderRunToolsPanel(selectedGroup: ManagedGroup | null): string {
+  const selectedPath = logPathDraft ?? logSource.path ?? state.sourceLog ?? "";
+  const activePath = logSource.currentPath || state.sourceLog || logSource.path || "";
+  const fileName = activePath ? activePath.split(/[\\/]/).pop() || activePath : "Chưa gắn log";
+  const listenerId = listenerState.listenerID || "";
+  const canRun = Boolean(selectedGroup && selectedPath && !listenerBusy);
+  const runState = listenerId ? (listenerState.running ? "Đang chạy" : "Đã tạo") : logSource.running ? "Đang quét" : "Chưa tạo";
+
+  return `
+    <section class="run-tools-panel">
+      <div class="detail-head">
+        <div>
+          <span class="eyebrow">Run tools</span>
+          <h3>Listener trận đấu</h3>
+        </div>
+        <span class="run-state ${listenerId && listenerState.running ? "is-live" : ""}">${escapeHtml(runState)}</span>
+      </div>
+      <div class="run-tools-grid">
+        <label class="wide-field">
+          <span>File log debugger</span>
+          <input
+            data-run-file-path
+            type="text"
+            value="${escapeHtml(selectedPath)}"
+            placeholder="C:\\duong\\dan\\debugger-2026-05-14T08-39-14.log"
+            spellcheck="false"
+          />
+        </label>
+        <div class="run-tools-meta">
+          <span>Nhóm chạy</span>
+          <strong>${selectedGroup ? escapeHtml(selectedGroup.groupId) : "Chưa chọn nhóm"}</strong>
+        </div>
+        <div class="run-tools-meta">
+          <span>Log hiện tại</span>
+          <strong title="${escapeHtml(activePath || fileName)}">${escapeHtml(fileName)}</strong>
+        </div>
+      </div>
+      <div class="run-actions">
+        <button type="button" data-run-create-start ${canRun ? "" : "disabled"}>${listenerBusy ? "Đang xử lý..." : "Tạo & chạy"}</button>
+        <button type="button" data-run-stop ${listenerId && listenerState.running && !listenerBusy ? "" : "disabled"}>Dừng</button>
+        <button type="button" class="danger-button" data-run-kill ${listenerId && !listenerBusy ? "" : "disabled"}>Hủy</button>
+        <a href="/terminal" target="_blank">Terminal</a>
+      </div>
+      ${listenerMessage ? `<div class="match-stats-status">${escapeHtml(listenerMessage)}</div>` : ""}
+    </section>
+  `;
+}
+
 function renderGroupListItem(group: ManagedGroup): string {
   const selected = group.groupId === selectedGroupId;
   return `
@@ -1495,13 +1765,18 @@ function renderGroupListItem(group: ManagedGroup): string {
 }
 
 function renderMatchItem(match: ManagedGroupMatch): string {
+  const time = match.addTime ? new Date(match.addTime).toLocaleString() : "";
   return `
     <div class="match-item">
       <div>
         <strong>${escapeHtml(match.matchId)}</strong>
         ${match.description ? `<span>${escapeHtml(match.description)}</span>` : ""}
+        ${time ? `<em>${escapeHtml(time)}</em>` : ""}
       </div>
-      <button type="button" data-match-delete="${escapeAttribute(match.matchId)}">Xóa</button>
+      <div class="match-actions">
+        <button type="button" data-match-open="${escapeAttribute(match.matchId)}">Xem</button>
+        <button type="button" data-match-delete="${escapeAttribute(match.matchId)}">Xóa</button>
+      </div>
     </div>
   `;
 }
@@ -1627,6 +1902,23 @@ function toggleInput(key: keyof OverlayConfig, label: string, value: boolean): s
 
 function getSelectedGroup(): ManagedGroup | null {
   return groups.find((group) => group.groupId === selectedGroupId) || null;
+}
+
+function normalizeListenerState(input: unknown, fallbackListenerID: string | null = listenerState.listenerID): ListenerState {
+  const record = input && typeof input === "object" ? (input as Record<string, unknown>) : {};
+  const rawLogSource = record.logSource && typeof record.logSource === "object" ? (record.logSource as Record<string, unknown>) : {};
+  const nextLogSource: LogSource = {
+    path: typeof rawLogSource.path === "string" ? rawLogSource.path : logSource.path,
+    mode: rawLogSource.mode === "file" ? "file" : "auto",
+    running: Boolean(record.running ?? rawLogSource.running),
+    currentPath: typeof rawLogSource.currentPath === "string" ? rawLogSource.currentPath : null
+  };
+
+  return {
+    listenerID: typeof record.listenerID === "string" && record.listenerID ? record.listenerID : fallbackListenerID,
+    running: Boolean(record.running),
+    logSource: nextLogSource
+  };
 }
 
 function normalizeText(value: unknown): string {

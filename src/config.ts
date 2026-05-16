@@ -210,7 +210,8 @@ export function normalizeOverlayConfig(input: Partial<OverlayConfig>): OverlayCo
     moveAnimation: optionOrDefault(input.moveAnimation, DEFAULT_OVERLAY_CONFIG.moveAnimation, ["glide", "slide", "snap", "top-pop", "off"]),
     rowEnterAnimation: optionOrDefault(input.rowEnterAnimation, DEFAULT_OVERLAY_CONFIG.rowEnterAnimation, ["slide", "fade", "off"]),
     playerLostAnimation: optionOrDefault(input.playerLostAnimation, DEFAULT_OVERLAY_CONFIG.playerLostAnimation, ["pulse", "shake", "off"]),
-    animationSpeed: Math.max(0.15, Math.min(2, numberOrDefault(input.animationSpeed, DEFAULT_OVERLAY_CONFIG.animationSpeed)))
+    animationSpeed: Math.max(0.15, Math.min(2, numberOrDefault(input.animationSpeed, DEFAULT_OVERLAY_CONFIG.animationSpeed))),
+    rowStyle: optionOrDefault(input.rowStyle, DEFAULT_OVERLAY_CONFIG.rowStyle, ["classic", "flat", "gradient", "minimal", "neon"])
   };
 }
 

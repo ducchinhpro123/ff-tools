@@ -8,7 +8,7 @@
     "desktop:dev": "npm run build && electron electron/main.cjs",
     "desktop:pack": "npm run build && electron-builder --dir",
     "desktop:win": "npm run build && electron-builder --win portable",
-    "dev": "tsx src/server.ts",
+    "dev": "tsx watch src/server.ts",
     "start": "node dist/server/src/server.js",
     "test": "npm run build && node --test dist/server/tests/*.test.js"
   },

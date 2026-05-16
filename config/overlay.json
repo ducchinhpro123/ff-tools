@@ -1,7 +1,7 @@
 {
   "width": 520,
   "scale": 1.2,
-  "rowCount": 13,
+  "rowCount": 10,
   "fontSize": 17,
   "rowHeight": 53,
   "opacity": 0.34,
@@ -9,14 +9,15 @@
   "accentColor": "#ff3b30",
   "headerColor": "#ff9d1e",
   "panelColor": "#1c1d23",
-  "textColor": "#ffffff",
+  "textColor": "#99c1f1",
   "mutedColor": "#767780",
   "showLogo": true,
   "showFooter": true,
-  "showDebug": false,
+  "showDebug": true,
   "animationEnabled": true,
   "moveAnimation": "top-pop",
   "rowEnterAnimation": "slide",
   "playerLostAnimation": "shake",
-  "animationSpeed": 0.55
+  "animationSpeed": 1.3,
+  "rowStyle": "minimal"
 }
