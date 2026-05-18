@@ -13,7 +13,7 @@
   "mutedColor": "#767780",
   "showLogo": true,
   "showFooter": true,
-  "showDebug": true,
+  "showDebug": false,
   "animationEnabled": true,
   "moveAnimation": "top-pop",
   "rowEnterAnimation": "slide",
