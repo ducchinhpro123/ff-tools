@@ -24,27 +24,18 @@ body {
 .scoreboard {
   width: var(--panel-width);
   position: relative;
-  padding: 2px;
+  padding: 0;
   transform: scale(var(--panel-scale));
   transform-origin: top left;
   color: var(--text);
   font-size: var(--font-size);
   background: transparent;
-  clip-path: polygon(25px 0, calc(100% - 25px) 0, 100% 25px, 100% calc(100% - 25px), calc(100% - 25px) 100%, 25px 100%, 0 calc(100% - 25px), 0 25px);
-  filter: drop-shadow(0 0 10px rgb(var(--header-rgb) / 0.24));
+  clip-path: none;
+  filter: none;
 }
 
 .scoreboard::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  clip-path: polygon(25px 0, calc(100% - 25px) 0, 100% 25px, 100% calc(100% - 25px), calc(100% - 25px) 100%, 25px 100%, 0 calc(100% - 25px), 0 25px);
-  box-shadow:
-    inset 0 0 0 2px rgb(var(--header-rgb) / 0.68),
-    inset 0 26px 0 -24px rgb(var(--header-rgb) / 0.8),
-    inset 0 -26px 0 -24px rgb(var(--header-rgb) / 0.8);
-  pointer-events: none;
+  display: none;
 }
 
 .scoreboard.board-enter {
@@ -123,7 +114,13 @@ body {
   content: "";
   position: absolute;
   inset: 1.5px;
-  background: linear-gradient(90deg, rgb(var(--panel-rgb) / 0.88), rgb(var(--panel-rgb) / 0.98));
+  background-color: rgb(var(--panel-rgb) / 0.94);
+  background-image:
+    linear-gradient(90deg, rgb(var(--panel-rgb) / 0.72), rgb(var(--panel-rgb) / 0.96)),
+    var(--row-bg-image, none);
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
   clip-path: polygon(9px 0, calc(100% - 9px) 0, 100% 9px, 100% calc(100% - 9px), calc(100% - 9px) 100%, 9px 100%, 0 calc(100% - 9px), 0 9px);
   z-index: 2;
   opacity: var(--row-opacity, 1);
@@ -138,7 +135,9 @@ body {
 }
 
 .team-row.podium-row::after {
-  background: linear-gradient(90deg, rgb(var(--panel-rgb) / 0.76), rgb(var(--panel-rgb) / 0.98) 60%);
+  background-image:
+    linear-gradient(90deg, rgb(var(--panel-rgb) / 0.58), rgb(var(--panel-rgb) / 0.96) 60%),
+    var(--row-bg-image, none);
 }
 
 .row-content {
@@ -285,6 +284,7 @@ body {
   transform: skewX(-22deg);
 }
 
+.bar.alive,
 .bar.red,
 .alive-bars .alive {
   background: var(--accent);
@@ -489,11 +489,12 @@ body {
 
 .score-footer {
   display: flex;
+  flex-wrap: wrap;
   justify-content: center;
   align-items: center;
-  gap: 20px;
+  gap: 8px 14px;
   color: var(--text);
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 1px;
 }
@@ -511,6 +512,7 @@ body {
   box-shadow: none;
 }
 
+.legend-bars .bar.alive,
 .legend-bars .bar.red {
   box-shadow: 0 0 5px rgb(var(--accent-rgb) / 0.5);
 }
@@ -1748,6 +1750,37 @@ body {
   grid-template-columns: 108px 1fr;
 }
 
+.text-field {
+  grid-template-columns: 108px minmax(0, 1fr);
+}
+
+.row-image-field {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.row-image-field > span {
+  display: none;
+}
+
+.row-image-control {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.row-image-title {
+  color: #a9afbd;
+  font: 700 11px Arial, sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+}
+
+.row-image-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .select-field select {
   width: 100%;
   min-width: 0;
@@ -1758,6 +1791,56 @@ body {
   background: #0d1015;
   color: #f5f7fb;
   font: 700 12px Arial, sans-serif;
+}
+
+.field input[type="text"] {
+  width: 100%;
+  min-width: 0;
+  min-height: 32px;
+  padding: 0 9px;
+  border: 1px solid rgb(255 255 255 / 0.16);
+  border-radius: 6px;
+  background: #0d1015;
+  color: #f5f7fb;
+  font: 700 12px Arial, sans-serif;
+}
+
+.field input[type="text"]::placeholder {
+  color: #6f7683;
+}
+
+.row-image-drop {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px dashed rgb(116 211 255 / 0.36);
+  border-radius: 6px;
+  background: rgb(116 211 255 / 0.07);
+  color: #a9cde1;
+  font: 700 12px Arial, sans-serif;
+}
+
+.row-image-drop.drag-over {
+  border-color: #74d3ff;
+  background: rgb(116 211 255 / 0.16);
+  color: #f5f7fb;
+}
+
+.row-image-actions button {
+  min-height: 32px;
+  padding: 0 11px;
+  border: 1px solid rgb(255 255 255 / 0.15);
+  border-radius: 6px;
+  background: #252a34;
+  color: #f5f7fb;
+  font: 700 12px Arial, sans-serif;
+  cursor: pointer;
+}
+
+.row-image-actions button:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .color-reset-field {
@@ -2351,7 +2434,13 @@ body {
 .scoreboard.row-style-flat .team-row::after {
   clip-path: none;
   inset: 0 0 0 4px;
-  background: rgb(var(--panel-rgb) / 0.94);
+  background-color: rgb(var(--panel-rgb) / 0.94);
+  background-image:
+    linear-gradient(90deg, rgb(var(--panel-rgb) / 0.7), rgb(var(--panel-rgb) / 0.94)),
+    var(--row-bg-image, none);
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
   border-radius: 0 6px 6px 0;
 }
 
@@ -2365,7 +2454,9 @@ body {
 }
 
 .scoreboard.row-style-flat .team-row.podium-row::after {
-  background: linear-gradient(90deg, rgb(var(--accent-rgb) / 0.18), rgb(var(--panel-rgb) / 0.96) 65%);
+  background-image:
+    linear-gradient(90deg, rgb(var(--accent-rgb) / 0.18), rgb(var(--panel-rgb) / 0.96) 65%),
+    var(--row-bg-image, none);
 }
 
 .scoreboard.row-style-flat .rank,
@@ -2401,7 +2492,13 @@ body {
 .scoreboard.row-style-gradient .team-row::after {
   clip-path: none;
   inset: 0;
-  background: linear-gradient(90deg, rgb(var(--accent-rgb) / 0.2), rgb(var(--panel-rgb) / 0.92) 65%);
+  background-color: rgb(var(--panel-rgb) / 0.92);
+  background-image:
+    linear-gradient(90deg, rgb(var(--accent-rgb) / 0.2), rgb(var(--panel-rgb) / 0.92) 65%),
+    var(--row-bg-image, none);
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
   border-radius: 6px;
 }
 
@@ -2411,7 +2508,9 @@ body {
 }
 
 .scoreboard.row-style-gradient .team-row.podium-row::after {
-  background: linear-gradient(90deg, rgb(var(--accent-rgb) / 0.36), rgb(var(--panel-rgb) / 0.95));
+  background-image:
+    linear-gradient(90deg, rgb(var(--accent-rgb) / 0.36), rgb(var(--panel-rgb) / 0.95)),
+    var(--row-bg-image, none);
 }
 
 /* Minimal: just text on transparent rows divided by faint hairlines. */
@@ -2453,7 +2552,13 @@ body {
 .scoreboard.row-style-neon .team-row::after {
   clip-path: none;
   inset: 1px;
-  background: rgb(var(--panel-rgb) / 0.7);
+  background-color: rgb(var(--panel-rgb) / 0.7);
+  background-image:
+    linear-gradient(90deg, rgb(var(--panel-rgb) / 0.52), rgb(var(--panel-rgb) / 0.72)),
+    var(--row-bg-image, none);
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
   border-radius: 5px;
 }
 
@@ -2469,7 +2574,9 @@ body {
 }
 
 .scoreboard.row-style-neon .team-row.podium-row::after {
-  background: rgb(var(--panel-rgb) / 0.74);
+  background-image:
+    linear-gradient(90deg, rgb(var(--panel-rgb) / 0.54), rgb(var(--panel-rgb) / 0.74)),
+    var(--row-bg-image, none);
 }
 
 .scoreboard.row-style-neon .team-row .rank {
@@ -2488,4 +2595,28 @@ body {
 .scoreboard.row-style-neon .alive-bars .bar {
   transform: skewX(0);
   border-radius: 2px;
+}
+
+.scoreboard .team-row.team-eliminated::after {
+  background-image:
+    linear-gradient(90deg, rgb(var(--panel-rgb) / 0.46), rgb(var(--panel-rgb) / 0.9)),
+    var(--row-eliminated-bg-image, none);
+}
+
+.scoreboard.row-style-flat .team-row.team-eliminated::after {
+  background-image:
+    linear-gradient(90deg, rgb(var(--panel-rgb) / 0.5), rgb(var(--panel-rgb) / 0.92)),
+    var(--row-eliminated-bg-image, none);
+}
+
+.scoreboard.row-style-gradient .team-row.team-eliminated::after {
+  background-image:
+    linear-gradient(90deg, rgb(var(--muted-rgb) / 0.22), rgb(var(--panel-rgb) / 0.92) 65%),
+    var(--row-eliminated-bg-image, none);
+}
+
+.scoreboard.row-style-neon .team-row.team-eliminated::after {
+  background-image:
+    linear-gradient(90deg, rgb(var(--panel-rgb) / 0.48), rgb(var(--panel-rgb) / 0.76)),
+    var(--row-eliminated-bg-image, none);
 }

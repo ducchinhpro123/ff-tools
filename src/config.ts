@@ -30,6 +30,11 @@ function normalizeString(value: unknown): string {
   return String(value || "").trim();
 }
 
+function limitedStringOrDefault(value: unknown, fallback: string, maxLength: number): string {
+  const text = normalizeString(value);
+  return (text || fallback).slice(0, maxLength);
+}
+
 function normalizeMatch(entry: unknown): ManagedGroupMatch | null {
   if (typeof entry === "string") {
     const matchId = normalizeString(entry);
@@ -211,7 +216,13 @@ export function normalizeOverlayConfig(input: Partial<OverlayConfig>): OverlayCo
     rowEnterAnimation: optionOrDefault(input.rowEnterAnimation, DEFAULT_OVERLAY_CONFIG.rowEnterAnimation, ["slide", "fade", "off"]),
     playerLostAnimation: optionOrDefault(input.playerLostAnimation, DEFAULT_OVERLAY_CONFIG.playerLostAnimation, ["pulse", "shake", "off"]),
     animationSpeed: Math.max(0.15, Math.min(2, numberOrDefault(input.animationSpeed, DEFAULT_OVERLAY_CONFIG.animationSpeed))),
-    rowStyle: optionOrDefault(input.rowStyle, DEFAULT_OVERLAY_CONFIG.rowStyle, ["classic", "flat", "gradient", "minimal", "neon"])
+    rowStyle: optionOrDefault(input.rowStyle, DEFAULT_OVERLAY_CONFIG.rowStyle, ["classic", "flat", "gradient", "minimal", "neon"]),
+    rowBackgroundImage: limitedStringOrDefault(input.rowBackgroundImage, DEFAULT_OVERLAY_CONFIG.rowBackgroundImage, 500),
+    rowEliminatedBackgroundImage: limitedStringOrDefault(
+      input.rowEliminatedBackgroundImage,
+      DEFAULT_OVERLAY_CONFIG.rowEliminatedBackgroundImage,
+      500
+    )
   };
 }
 

@@ -217,6 +217,69 @@ test("publishes knockdown events from combat log lines", () => {
   assert.equal(events[0].killerTeam, "LQTA");
 });
 
+test("tracks knocked players separately from alive and eliminated", () => {
+  const state = new ScoreboardState();
+
+  [
+    "OnTeamScoreInited -> TeamName: Alpha TeamID: 1",
+    "[UIModelSpectator] AddPlayer id101,nameOne,gsTeam1",
+    "[UIModelSpectator] AddPlayer id102,nameTwo,gsTeam1",
+    "Player '102' Knock Down, by '201'"
+  ].forEach((line) => state.consumeLine(line));
+
+  let row = state.toPublicState().teams[0];
+  assert.equal(row.alive, 1);
+  assert.equal(row.knocked, 1);
+  assert.equal(row.eliminated, 0);
+  assert.equal(row.teamEliminated, false);
+
+  state.consumeLine("Player 102 Dead, killed by 201");
+  row = state.toPublicState().teams[0];
+  assert.equal(row.alive, 1);
+  assert.equal(row.knocked, 0);
+  assert.equal(row.eliminated, 1);
+
+  state.consumeLine("Revive Player 102, revivePosition=(106.09, 300.00, 385.72)");
+  row = state.toPublicState().teams[0];
+  assert.equal(row.alive, 2);
+  assert.equal(row.knocked, 0);
+  assert.equal(row.eliminated, 0);
+});
+
+test("all knocked players do not count as a team elimination", () => {
+  const state = new ScoreboardState();
+
+  [
+    "OnTeamScoreInited -> TeamName: Alpha TeamID: 1",
+    "[UIModelSpectator] AddPlayer id101,nameOne,gsTeam1",
+    "[UIModelSpectator] AddPlayer id102,nameTwo,gsTeam1",
+    "Player '101' Knock Down, by '201'",
+    "Player '102' Knock Down, by '201'"
+  ].forEach((line) => state.consumeLine(line));
+
+  const row = state.toPublicState().teams[0];
+  assert.equal(row.alive, 0);
+  assert.equal(row.knocked, 2);
+  assert.equal(row.eliminated, 0);
+  assert.equal(row.teamEliminated, false);
+});
+
+test("revive restores a knocked player to alive without a death line", () => {
+  const state = new ScoreboardState();
+
+  [
+    "OnTeamScoreInited -> TeamName: Alpha TeamID: 1",
+    "[UIModelSpectator] AddPlayer id101,nameOne,gsTeam1",
+    "Player '101' Knock Down, by '201'",
+    "Revive Player 101, revivePosition=(106.09, 300.00, 385.72)"
+  ].forEach((line) => state.consumeLine(line));
+
+  const row = state.toPublicState().teams[0];
+  assert.equal(row.alive, 1);
+  assert.equal(row.knocked, 0);
+  assert.equal(row.eliminated, 0);
+});
+
 test("uses latest game score order to break ties", () => {
   const state = new ScoreboardState();
 

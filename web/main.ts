@@ -12,6 +12,7 @@ interface TeamRow {
   totalPoints: number;
   teamEliminated: boolean;
   alive: number;
+  knocked: number;
   eliminated: number;
   players: number;
 }
@@ -109,6 +110,8 @@ interface OverlayConfig {
   playerLostAnimation: string;
   animationSpeed: number;
   rowStyle: string;
+  rowBackgroundImage: string;
+  rowEliminatedBackgroundImage: string;
 }
 
 interface PublicConfig {
@@ -200,7 +203,9 @@ let config: PublicConfig = {
     rowEnterAnimation: "slide",
     playerLostAnimation: "pulse",
     animationSpeed: 1,
-    rowStyle: "classic"
+    rowStyle: "classic",
+    rowBackgroundImage: "",
+    rowEliminatedBackgroundImage: ""
   }
 };
 
@@ -235,6 +240,11 @@ let matchDetailsLoadedFor = "";
 let matchDetailsHtml = "";
 let terminalSearch = "";
 let terminalLevel = "all";
+let rowBackgroundUploading = false;
+let rowEliminatedBackgroundUploading = false;
+let rowBackgroundImageDraft: string | null = null;
+let rowEliminatedBackgroundImageDraft: string | null = null;
+let configSaveSerial = 0;
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
 const pageMode = location.pathname.replace(/^\/+/, "") || "overlay";
@@ -445,6 +455,8 @@ function renderOverlay(animateBoard = false, animationPreview: AnimationPreviewK
     `--panel-rgb:${hexToRgbTriplet(c.panelColor)}`,
     `--text-rgb:${hexToRgbTriplet(c.textColor)}`,
     `--muted-rgb:${hexToRgbTriplet(c.mutedColor)}`,
+    `--row-bg-image:${cssImageValue(c.rowBackgroundImage)}`,
+    `--row-eliminated-bg-image:${cssImageValue(c.rowEliminatedBackgroundImage || c.rowBackgroundImage)}`,
     `--anim-speed:${animationSpeedValue(c)}`
   ].join(";");
   const animationClasses = c.animationEnabled
@@ -797,8 +809,8 @@ function shortEventTeamName(teamName: string): string {
 }
 
 function renderLegendBars(kind: "alive" | "out"): string {
-  return Array.from({ length: 4 })
-    .map(() => `<i class="bar ${kind === "alive" ? "red" : ""}"></i>`)
+  return Array.from({ length: 1 })
+    .map(() => `<i class="bar ${kind}"></i>`)
     .join("");
 }
 
@@ -838,7 +850,7 @@ function renderTeamRow(
   const rankChange = previous ? previous.rank - team.rank : 0;
   const animationsEnabled = c.animationEnabled;
   const hasRankMove = rankChange !== 0;
-  const isEliminated = team.teamEliminated || (team.players > 0 && team.alive === 0);
+  const isEliminated = team.teamEliminated || (team.players > 0 && team.alive === 0 && (team.knocked || 0) === 0);
   const demoEnter = animationPreview === "enter" && index < 3;
   const demoLost = animationPreview === "lost" && index === 0;
   const demoMovedUp = animationPreview === "move" && index === 1;
@@ -871,9 +883,9 @@ function renderTeamRow(
         <div class="points">
           ${team.totalPoints}
         </div>
-        <div class="alive-bars" aria-label="${visibleAlive} còn sống">
+        <div class="alive-bars" aria-label="${visibleAlive} alive">
           ${Array.from({ length: aliveSlots })
-            .map((_, index) => `<span class="bar ${index < visibleAlive ? "red alive" : "out"}"></span>`)
+            .map((_, index) => `<span class="bar ${index < visibleAlive ? "alive" : "out"}"></span>`)
             .join("")}
         </div>
       </div>
@@ -959,6 +971,8 @@ function renderOverlayControls(): string {
         ["minimal", "Tối giản"],
         ["neon", "Neon"]
       ])}
+      ${renderRowBackgroundImageControl(c, "default")}
+      ${renderRowBackgroundImageControl(c, "eliminated")}
       ${toggleInput("animationEnabled", "Hiệu ứng", c.animationEnabled)}
       ${selectInput("moveAnimation", "Đổi hạng", c.moveAnimation, [
         ["glide", "Lướt"],
@@ -1050,11 +1064,26 @@ function bindControlEvents(): void {
   });
 
   app.querySelectorAll<HTMLInputElement | HTMLSelectElement>("[data-config]").forEach((input) => {
-    input.addEventListener("input", () => {
+    const update = () => {
       const key = input.dataset.config as keyof OverlayConfig;
       updateOverlayConfigFromInput(key, input);
-    });
+    };
+
+    if (input instanceof HTMLInputElement && input.type === "text") {
+      input.addEventListener("input", () => {
+        if (input.dataset.config === "rowBackgroundImage") rowBackgroundImageDraft = input.value;
+        if (input.dataset.config === "rowEliminatedBackgroundImage") rowEliminatedBackgroundImageDraft = input.value;
+      });
+      input.addEventListener("change", update);
+      input.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") input.blur();
+      });
+    } else {
+      input.addEventListener("input", update);
+    }
   });
+
+  bindRowBackgroundEvents();
 
   app.querySelectorAll<HTMLButtonElement>("[data-step-config]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -1088,9 +1117,125 @@ function updateOverlayConfigFromInput(key: keyof OverlayConfig, input: HTMLInput
     (next[key] as string) = input.value;
   }
   config = { ...config, overlay: next };
+  if (key === "rowBackgroundImage") rowBackgroundImageDraft = null;
+  if (key === "rowEliminatedBackgroundImage") rowEliminatedBackgroundImageDraft = null;
   triggerAnimationPreview(previewKindForConfigKey(key));
   render();
   void saveConfig();
+}
+
+function bindRowBackgroundEvents(): void {
+  app.querySelectorAll<HTMLElement>("[data-row-bg-drop]").forEach((dropZone) => {
+    const kind = rowImageKindFromControl(dropZone);
+
+    dropZone.addEventListener("dragover", (event) => {
+      event.preventDefault();
+      dropZone.classList.add("drag-over");
+    });
+
+    dropZone.addEventListener("dragleave", () => {
+      dropZone.classList.remove("drag-over");
+    });
+
+    dropZone.addEventListener("drop", (event) => {
+      event.preventDefault();
+      dropZone.classList.remove("drag-over");
+      const file = event.dataTransfer?.files?.[0];
+      if (file) void uploadRowBackgroundImage(file, kind);
+    });
+  });
+
+  app.querySelectorAll<HTMLInputElement>("[data-row-bg-file]").forEach((fileInput) => {
+    const kind = rowImageKindFromControl(fileInput);
+
+    fileInput.addEventListener("change", () => {
+      const file = fileInput.files?.[0];
+      fileInput.value = "";
+      if (file) void uploadRowBackgroundImage(file, kind);
+    });
+  });
+
+  app.querySelectorAll<HTMLButtonElement>("[data-row-bg-clear]").forEach((button) => {
+    const kind = rowImageKindFromControl(button);
+
+    button.addEventListener("click", () => {
+      const key = rowImageConfigKey(kind);
+      config = {
+        ...config,
+        overlay: {
+          ...config.overlay,
+          [key]: ""
+        }
+      };
+      clearRowImageDraft(kind);
+      render();
+      void saveConfig();
+    });
+  });
+}
+
+type RowImageKind = "default" | "eliminated";
+
+function rowImageKindFromValue(value: string | undefined): RowImageKind {
+  return value === "eliminated" ? "eliminated" : "default";
+}
+
+function rowImageKindFromControl(element: Element): RowImageKind {
+  const key = element.closest(".row-image-control")?.querySelector<HTMLInputElement>("[data-config]")?.dataset.config;
+  return key === "rowEliminatedBackgroundImage" ? "eliminated" : "default";
+}
+
+function rowImageConfigKey(kind: RowImageKind): "rowBackgroundImage" | "rowEliminatedBackgroundImage" {
+  return kind === "eliminated" ? "rowEliminatedBackgroundImage" : "rowBackgroundImage";
+}
+
+function clearRowImageDraft(kind: RowImageKind): void {
+  if (kind === "eliminated") rowEliminatedBackgroundImageDraft = null;
+  else rowBackgroundImageDraft = null;
+}
+
+async function uploadRowBackgroundImage(file: File, kind: RowImageKind): Promise<void> {
+  if (!file.type.startsWith("image/") && !/\.(png|jpe?g|webp|gif|svg)$/i.test(file.name)) {
+    window.alert("Please drop an image file.");
+    return;
+  }
+
+  if (kind === "eliminated") rowEliminatedBackgroundUploading = true;
+  else rowBackgroundUploading = true;
+  render();
+
+  try {
+    const response = await fetch("/api/assets/row-background", {
+      method: "POST",
+      headers: {
+        "Content-Type": file.type || "application/octet-stream",
+        "X-File-Name": encodeURIComponent(file.name)
+      },
+      body: file
+    });
+
+    const payload = (await response.json()) as { url?: string; message?: string };
+    if (!response.ok || !payload.url) {
+      throw new Error(payload.message || `Upload failed: HTTP ${response.status}`);
+    }
+
+    config = {
+      ...config,
+      overlay: {
+        ...config.overlay,
+        [rowImageConfigKey(kind)]: normalizeRowBackgroundImage(payload.url)
+      }
+    };
+    clearRowImageDraft(kind);
+    render();
+    await saveConfigNow();
+  } catch (error) {
+    window.alert(error instanceof Error ? error.message : "Could not upload row background image.");
+  } finally {
+    if (kind === "eliminated") rowEliminatedBackgroundUploading = false;
+    else rowBackgroundUploading = false;
+    render();
+  }
 }
 
 function decimalPlaces(value: number): number {
@@ -1848,6 +1993,7 @@ async function saveConfigNow(): Promise<void> {
     saveTimer = null;
   }
 
+  const saveSerial = ++configSaveSerial;
   const response = await fetch("/api/config", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -1856,16 +2002,30 @@ async function saveConfigNow(): Promise<void> {
   if (!response.ok) {
     throw new Error(`Không thể lưu cấu hình: HTTP ${response.status}`);
   }
-  config = await response.json();
-  config.overlay = normalizeOverlayClientConfig(config.overlay);
+  const savedConfig = await response.json();
+  if (saveSerial === configSaveSerial) {
+    config = savedConfig;
+    config.overlay = normalizeOverlayClientConfig(config.overlay);
+  }
 }
 
 function normalizeOverlayClientConfig(input: Partial<OverlayConfig>): OverlayConfig {
   return {
     ...config.overlay,
     ...input,
-    rowOpacity: Math.max(0, Math.min(1, numberOrDefault(input.rowOpacity, 1)))
+    rowOpacity: Math.max(0, Math.min(1, numberOrDefault(input.rowOpacity, 1))),
+    rowBackgroundImage: normalizeRowBackgroundImage(input.rowBackgroundImage ?? config.overlay.rowBackgroundImage ?? ""),
+    rowEliminatedBackgroundImage: normalizeRowBackgroundImage(
+      input.rowEliminatedBackgroundImage ?? config.overlay.rowEliminatedBackgroundImage ?? ""
+    )
   };
+}
+
+function normalizeRowBackgroundImage(value: unknown): string {
+  const text = String(value || "").trim().replace(/\\/g, "/").slice(0, 500);
+  if (!text) return "";
+  if (/^(https?:|data:|\/)/i.test(text)) return text;
+  return text.replace(/^assets\//i, "/assets/");
 }
 
 function normalizeImportedOverlayConfig(input: unknown): OverlayConfig {
@@ -2204,6 +2364,46 @@ function colorInput(key: keyof OverlayConfig, label: string, value: string): str
   `;
 }
 
+function textInput(key: keyof OverlayConfig, label: string, value: string, placeholder = ""): string {
+  return `
+    <label class="field text-field">
+      <span>${label}</span>
+      <input data-config="${key}" type="text" value="${escapeAttribute(value)}" placeholder="${escapeAttribute(placeholder)}" />
+    </label>
+  `;
+}
+
+function renderRowBackgroundImageControl(c: OverlayConfig, kind: RowImageKind): string {
+  const isEliminated = kind === "eliminated";
+  const value = isEliminated
+    ? rowEliminatedBackgroundImageDraft ?? normalizeRowBackgroundImage(c.rowEliminatedBackgroundImage)
+    : rowBackgroundImageDraft ?? normalizeRowBackgroundImage(c.rowBackgroundImage);
+  const key = rowImageConfigKey(kind);
+  const label = isEliminated ? "Anh doi bi loai" : "Anh dong";
+  const placeholder = isEliminated ? "/assets/dead-row-bg.png" : "/assets/row-bg.png";
+  const uploading = isEliminated ? rowEliminatedBackgroundUploading : rowBackgroundUploading;
+  const dropText = isEliminated ? "Keo tha anh cho doi bi loai vao day" : "Keo tha anh nen dong vao day";
+  return `
+    <div class="field row-image-field">
+      <span>Ảnh dòng</span>
+      <div class="row-image-control">
+        <small class="row-image-title">${label}</small>
+        <input data-config="${key}" type="text" value="${escapeAttribute(value)}" placeholder="${placeholder}" />
+        <div class="row-image-actions">
+          <label class="file-button row-image-file">
+            Chọn ảnh
+            <input type="file" accept="image/*" data-row-bg-file="${kind}" />
+          </label>
+          <button type="button" data-row-bg-clear ${value ? "" : "disabled"}>Xóa</button>
+        </div>
+        <div class="row-image-drop" data-row-bg-drop>
+          ${rowBackgroundUploading ? "Đang tải ảnh..." : "Kéo thả ảnh nền dòng vào đây"}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 function selectInput(
   key: keyof OverlayConfig,
   label: string,
@@ -2516,6 +2716,15 @@ function hexToRgbTriplet(value: string): string {
 
   const numeric = Number.parseInt(expanded, 16);
   return `${(numeric >> 16) & 255} ${(numeric >> 8) & 255} ${numeric & 255}`;
+}
+
+function cssImageValue(value: string): string {
+  const normalized = normalizeRowBackgroundImage(value);
+  if (!normalized) return "none";
+  const safeUrl = normalized
+    .replace(/[\u0000-\u001f\u007f]/g, "")
+    .replace(/["'()\\\s]/g, (char) => encodeURIComponent(char));
+  return `url(${safeUrl})`;
 }
 
 void boot();

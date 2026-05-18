@@ -1,12 +1,12 @@
 {
-  "width": 560,
-  "scale": 1.2,
-  "rowCount": 10,
+  "width": 530,
+  "scale": 1,
+  "rowCount": 12,
   "fontSize": 23,
-  "rowHeight": 57,
+  "rowHeight": 46,
   "opacity": 0.38,
   "rowOpacity": 0.97,
-  "accentColor": "#ff3b30",
+  "accentColor": "#6c0c74",
   "headerColor": "#ff9d1e",
   "panelColor": "#1c1d23",
   "textColor": "#ffffff",
@@ -14,10 +14,12 @@
   "showLogo": true,
   "showFooter": true,
   "showDebug": false,
-  "animationEnabled": true,
+  "animationEnabled": false,
   "moveAnimation": "top-pop",
   "rowEnterAnimation": "slide",
   "playerLostAnimation": "shake",
   "animationSpeed": 0.4,
-  "rowStyle": "classic"
+  "rowStyle": "flat",
+  "rowBackgroundImage": "/assets/row-backgrounds/1779066577828-cd8f02cb-GDHS9_Eliminated_BoxData.png",
+  "rowEliminatedBackgroundImage": "/assets/row-backgrounds/1779066848790-6557af4f-GDHS9_Eliminated_TitleFrame.png"
 }

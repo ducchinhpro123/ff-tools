@@ -64,11 +64,50 @@ app.use((request, response, next) => {
 });
 app.use("/assets", express.static(assetsDir));
 
+const rowBackgroundMimeExtensions = new Map<string, string>([
+  ["image/png", ".png"],
+  ["image/jpeg", ".jpg"],
+  ["image/webp", ".webp"],
+  ["image/gif", ".gif"],
+  ["image/svg+xml", ".svg"]
+]);
+const rowBackgroundExtensions = new Set(rowBackgroundMimeExtensions.values());
+
 function normalizeFilePath(value: unknown): string {
   return String(value || "")
     .trim()
     .replace(/^"+|"+$/g, "")
     .trim();
+}
+
+function mimeTypeFromHeader(value: unknown): string {
+  return String(value || "")
+    .split(";")[0]
+    .trim()
+    .toLowerCase();
+}
+
+function safeAssetBaseName(value: unknown): string {
+  const baseName = path.basename(normalizeFilePath(value));
+  const parsed = path.parse(baseName).name || "row-background";
+  return parsed
+    .replace(/[^a-z0-9_-]+/gi, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48) || "row-background";
+}
+
+function decodeHeaderValue(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function rowBackgroundExtension(fileName: string, mimeType: string): string {
+  const extension = path.extname(fileName).toLowerCase();
+  if (rowBackgroundExtensions.has(extension)) return extension;
+  return rowBackgroundMimeExtensions.get(mimeType) || "";
 }
 
 function publicConfig(): PublicConfig {
@@ -201,6 +240,47 @@ app.post("/api/config", async (request, response) => {
   broadcast("config");
   response.json(publicConfig());
 });
+
+app.post(
+  "/api/assets/row-background",
+  express.raw({
+    limit: "8mb",
+    type: (request) => {
+      const mimeType = mimeTypeFromHeader(request.headers["content-type"]);
+      return mimeType.startsWith("image/") || mimeType === "application/octet-stream";
+    }
+  }),
+  async (request, response) => {
+    const body = request.body;
+    if (!Buffer.isBuffer(body) || body.length === 0) {
+      response.status(400).json({ status: "error", message: "Image file is required" });
+      return;
+    }
+
+    const rawFileName = decodeHeaderValue(String(request.header("x-file-name") || "row-background"));
+    const mimeType = mimeTypeFromHeader(request.headers["content-type"]);
+    const extension = rowBackgroundExtension(rawFileName, mimeType);
+    if (!extension) {
+      response.status(400).json({ status: "error", message: "Unsupported image type" });
+      return;
+    }
+
+    const outputDir = path.join(assetsDir, "row-backgrounds");
+    await fs.promises.mkdir(outputDir, { recursive: true });
+
+    const fileName = `${Date.now()}-${randomUUID().slice(0, 8)}-${safeAssetBaseName(rawFileName)}${extension}`;
+    const outputPath = path.join(outputDir, fileName);
+    const resolvedDir = path.resolve(outputDir);
+    const resolvedOutput = path.resolve(outputPath);
+    if (!resolvedOutput.startsWith(`${resolvedDir}${path.sep}`)) {
+      response.status(400).json({ status: "error", message: "Invalid file name" });
+      return;
+    }
+
+    await fs.promises.writeFile(outputPath, body);
+    response.json({ status: "success", url: `/assets/row-backgrounds/${fileName}` });
+  }
+);
 
 app.get("/api/log-source", (_request, response) => {
   response.json(publicLogSource());

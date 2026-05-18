@@ -62,6 +62,8 @@ export interface OverlayConfig {
   playerLostAnimation: string;
   animationSpeed: number;
   rowStyle: string;
+  rowBackgroundImage: string;
+  rowEliminatedBackgroundImage: string;
 }
 
 export interface TeamRow {
@@ -76,6 +78,7 @@ export interface TeamRow {
   totalPoints: number;
   teamEliminated: boolean;
   alive: number;
+  knocked: number;
   eliminated: number;
   players: number;
 }

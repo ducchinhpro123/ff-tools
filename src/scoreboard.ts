@@ -25,8 +25,10 @@ interface PlayerInternal {
   teamId: number;
   rosterTeamName: string;
   rosterTeamId: number | null;
-  alive: boolean;
+  status: PlayerStatus;
 }
+
+type PlayerStatus = "alive" | "knocked" | "dead";
 
 interface SortableTeamRow extends TeamRow {
   scoreOrder: number;
@@ -38,6 +40,7 @@ export class ScoreboardState {
   private teams = new Map<number, TeamInternal>();
   private players = new Map<string, PlayerInternal>();
   private pendingDead = new Set<string>();
+  private pendingKnocked = new Set<string>();
   private playerOrigins = new Map<string, { originPlayerId: string; name: string }>();
   private playerRoster = new Map<string, PlayerRosterEntry>();
   private teamConfigs: TeamConfig[] = [];
@@ -68,6 +71,7 @@ export class ScoreboardState {
     this.teams.clear();
     this.players.clear();
     this.pendingDead.clear();
+    this.pendingKnocked.clear();
     this.playerOrigins.clear();
     this.sourceToScoreTeam.clear();
     this.sourceScoreVotes.clear();
@@ -177,7 +181,7 @@ export class ScoreboardState {
           teamId,
           rosterTeamName,
           rosterTeamId: this.teamIdForRosterName(rosterTeamName),
-          alive: !this.pendingDead.has(playerId)
+          status: this.statusForNewPlayer(playerId)
         };
         this.players.set(playerId, player);
         this.ensureTeam(teamId).playerIds.add(playerId);
@@ -188,6 +192,13 @@ export class ScoreboardState {
     const knockdown = line.match(/Player '(\d+)' Knock Down, by '(\d+)'/);
     if (knockdown) {
       this.addKnockdownEvent(line, knockdown[1], knockdown[2]);
+      this.markKnocked(knockdown[1]);
+      return true;
+    }
+
+    const teammateKnockdown = line.match(/Teammate (\d+) Knock Down/);
+    if (teammateKnockdown) {
+      this.markKnocked(teammateKnockdown[1]);
       return true;
     }
 
@@ -200,12 +211,7 @@ export class ScoreboardState {
       }
       const killer = this.players.get(death[2]);
       if (killer) this.eventKillerSourceTeams.add(killer.teamId);
-      const player = this.players.get(playerId);
-      if (player) {
-        player.alive = false;
-      } else {
-        this.pendingDead.add(playerId);
-      }
+      this.markDead(playerId);
       return true;
     }
 
@@ -218,7 +224,7 @@ export class ScoreboardState {
         this.addTeamEliminatedEvent(line, deadPlayerId || "", deadPlayer, scoreTeamId);
         this.eliminatedTeamIds.add(scoreTeamId);
         for (const player of this.players.values()) {
-          if (this.scoreTeamForPlayer(player) === scoreTeamId) player.alive = false;
+          if (this.scoreTeamForPlayer(player) === scoreTeamId) player.status = "dead";
         }
       }
       return true;
@@ -230,10 +236,11 @@ export class ScoreboardState {
       const player = this.players.get(playerId);
       this.addReviveEvent(line, playerId);
       if (player) {
-        player.alive = true;
-        this.pendingDead.delete(playerId);
+        this.markAlive(playerId);
         const scoreTeamId = this.scoreTeamForPlayer(player);
         if (scoreTeamId) this.eliminatedTeamIds.delete(scoreTeamId);
+      } else {
+        this.markAlive(playerId);
       }
       return true;
     }
@@ -241,24 +248,14 @@ export class ScoreboardState {
     const pendingRevive = line.match(/NotifyPlayerEnterPendingRevive -> (\d+)/);
     if (pendingRevive) {
       const playerId = pendingRevive[1];
-      const player = this.players.get(playerId);
-      if (player) {
-        player.alive = false;
-      } else {
-        this.pendingDead.add(playerId);
-      }
+      this.markDead(playerId);
       return true;
     }
 
     const quitRevive = line.match(/Player quit revive, (\d+)/);
     if (quitRevive) {
       const playerId = quitRevive[1];
-      const player = this.players.get(playerId);
-      if (player) {
-        player.alive = false;
-      } else {
-        this.pendingDead.add(playerId);
-      }
+      this.markDead(playerId);
       return true;
     }
 
@@ -314,6 +311,7 @@ export class ScoreboardState {
         b.liveScore - a.liveScore ||
         a.scoreOrder - b.scoreOrder ||
         b.alive - a.alive ||
+        b.knocked - a.knocked ||
         a.teamId - b.teamId
       );
     });
@@ -532,6 +530,38 @@ export class ScoreboardState {
     this.sourceToScoreTeam.set(sourceTeamId, bestScoreTeam);
   }
 
+  private statusForNewPlayer(playerId: string): PlayerStatus {
+    if (this.pendingDead.has(playerId)) return "dead";
+    if (this.pendingKnocked.has(playerId)) return "knocked";
+    return "alive";
+  }
+
+  private markKnocked(playerId: string): void {
+    const player = this.players.get(playerId);
+    if (player) {
+      if (player.status !== "dead") player.status = "knocked";
+      return;
+    }
+    if (!this.pendingDead.has(playerId)) this.pendingKnocked.add(playerId);
+  }
+
+  private markDead(playerId: string): void {
+    const player = this.players.get(playerId);
+    if (player) {
+      player.status = "dead";
+    } else {
+      this.pendingDead.add(playerId);
+    }
+    this.pendingKnocked.delete(playerId);
+  }
+
+  private markAlive(playerId: string): void {
+    const player = this.players.get(playerId);
+    if (player) player.status = "alive";
+    this.pendingDead.delete(playerId);
+    this.pendingKnocked.delete(playerId);
+  }
+
   private ensureTeam(teamId: number): TeamInternal {
     let team = this.teams.get(teamId);
     if (!team) {
@@ -556,10 +586,12 @@ export class ScoreboardState {
     const rosterName = this.rosterNameForPlayers(players);
     const historical = this.findHistoricalForTeam(team, config, rosterConfig, rosterName);
     const teamEliminated = this.eliminatedTeamIds.has(team.teamId);
-    const rawAlive = teamEliminated ? 0 : players.filter((player) => player.alive).length;
+    const rawAlive = teamEliminated ? 0 : players.filter((player) => player.status === "alive").length;
+    const rawKnocked = teamEliminated ? 0 : players.filter((player) => player.status === "knocked").length;
     const alive = Math.min(4, rawAlive);
-    const playerCount = Math.min(4, Math.max(players.length, rawAlive));
-    const eliminated = Math.max(0, playerCount - alive);
+    const knocked = Math.max(0, Math.min(4 - alive, rawKnocked));
+    const playerCount = Math.min(4, Math.max(players.length, rawAlive + rawKnocked));
+    const eliminated = Math.max(0, playerCount - alive - knocked);
     const name = rosterConfig?.displayName || rosterName || team.logName || config?.displayName || `Team ${team.teamId}`;
     const shortName = rosterConfig?.shortName || rosterName || config?.shortName || this.shortNameFrom(name);
     const basePoints = historical?.totalScore ?? rosterConfig?.basePoints ?? config?.basePoints ?? 0;
@@ -574,11 +606,12 @@ export class ScoreboardState {
       basePoints,
       liveScore: team.liveScore,
       totalPoints: basePoints + team.liveScore,
-      teamEliminated: teamEliminated || (playerCount > 0 && alive === 0),
+      teamEliminated: teamEliminated || (playerCount > 0 && eliminated >= playerCount),
       scoreOrder: team.scoreOrder,
       historicalElims: historical?.elims ?? 0,
       historicalRankPoint: historical?.rankPoint ?? 0,
       alive,
+      knocked,
       eliminated,
       players: playerCount
     };
@@ -604,6 +637,7 @@ export class ScoreboardState {
       historicalElims: team.elims,
       historicalRankPoint: team.rankPoint,
       alive: 0,
+      knocked: 0,
       eliminated: 0,
       players: 0
     };
