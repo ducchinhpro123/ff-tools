@@ -3,8 +3,8 @@ const fs = require("node:fs");
 const net = require("node:net");
 const path = require("node:path");
 
-const DEFAULT_PORT = 3977;
-const MAX_PORT = 3999;
+const DEFAULT_PORT = 5173;
+const MAX_PORT = 5199;
 
 let mainWindow = null;
 let serverHandle = null;

@@ -233,6 +233,8 @@ let animationPreviewUntil = 0;
 let animationPreviewTimer: number | null = null;
 let matchDetailsLoadedFor = "";
 let matchDetailsHtml = "";
+let terminalSearch = "";
+let terminalLevel = "all";
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
 const pageMode = location.pathname.replace(/^\/+/, "") || "overlay";
@@ -317,6 +319,7 @@ function render(): void {
   app.innerHTML = renderCurrentPage(shouldAnimateBoard);
   if (!isControl && !isTerminal && !isMatchDetails) overlayHasRendered = true;
   if (isControl) bindControlEvents();
+  if (isTerminal) bindTerminalEvents();
   if (isMatchDetails) bindMatchDetailsEvents();
   animateRowMoves(oldPositions);
 }
@@ -606,7 +609,10 @@ function renderEliminatedCard(event: PublicEliminatedEvent, isNew = false): stri
 }
 
 function renderTerminalPage(): string {
-  const entries = state.logs.slice(-180);
+  const entries = filteredTerminalLogs();
+  const listenerId = listenerState.listenerID || "";
+  const activePath = logSource.currentPath || state.sourceLog || logSource.path || "";
+  const statusText = listenerId ? (listenerState.running ? "Đang chạy" : "Đã tạo") : logSource.running ? "Đang quét" : "Chưa tạo";
   return `
     <section class="tool-page terminal-page">
       <header class="tool-head">
@@ -616,11 +622,49 @@ function renderTerminalPage(): string {
         </div>
         <a href="/control">Điều khiển</a>
       </header>
+      <section class="terminal-console">
+        <div>
+          <span>Listener</span>
+          <strong>${escapeHtml(statusText)}</strong>
+        </div>
+        <div>
+          <span>ID</span>
+          <strong>${escapeHtml(listenerId || "-")}</strong>
+        </div>
+        <div>
+          <span>File</span>
+          <strong title="${escapeAttribute(activePath || "-")}">${escapeHtml(activePath ? activePath.split(/[\\/]/).pop() || activePath : "-")}</strong>
+        </div>
+        <div class="terminal-actions">
+          <button type="button" data-terminal-action="start" ${listenerId && !listenerState.running && !listenerBusy ? "" : "disabled"}>Start</button>
+          <button type="button" data-terminal-action="stop" ${listenerId && listenerState.running && !listenerBusy ? "" : "disabled"}>Stop</button>
+          <button type="button" class="danger-button" data-terminal-action="kill" ${listenerId && !listenerBusy ? "" : "disabled"}>Kill</button>
+        </div>
+      </section>
+      <div class="terminal-filters">
+        <input data-terminal-search value="${escapeHtml(terminalSearch)}" placeholder="Tìm log..." />
+        <select data-terminal-level>
+          ${["all", "error", "warn", "success", "info", "debug"].map((level) => `<option value="${level}" ${terminalLevel === level ? "selected" : ""}>${level.toUpperCase()}</option>`).join("")}
+        </select>
+        <span>${entries.length}/${state.logs.length} dòng</span>
+      </div>
+      ${listenerMessage ? `<div class="match-stats-status">${escapeHtml(listenerMessage)}</div>` : ""}
       <div class="terminal-output">
         ${entries.map(renderTerminalLine).join("") || `<div class="terminal-line level-warn"><span>Chưa có log.</span></div>`}
       </div>
     </section>
   `;
+}
+
+function filteredTerminalLogs(): PublicLogEntry[] {
+  const needle = terminalSearch.trim().toLowerCase();
+  return state.logs
+    .filter((entry) => terminalLevel === "all" || entry.level === terminalLevel)
+    .filter((entry) => {
+      if (!needle) return true;
+      return [entry.message, entry.source, entry.level].join(" ").toLowerCase().includes(needle);
+    })
+    .slice(-300);
 }
 
 function renderTerminalLine(entry: PublicLogEntry): string {
@@ -632,6 +676,27 @@ function renderTerminalLine(entry: PublicLogEntry): string {
       <strong>${escapeHtml(entry.message)}</strong>
     </div>
   `;
+}
+
+function bindTerminalEvents(): void {
+  app.querySelector<HTMLInputElement>("[data-terminal-search]")?.addEventListener("input", (event) => {
+    terminalSearch = (event.target as HTMLInputElement).value;
+    render();
+  });
+
+  app.querySelector<HTMLSelectElement>("[data-terminal-level]")?.addEventListener("change", (event) => {
+    terminalLevel = (event.target as HTMLSelectElement).value;
+    render();
+  });
+
+  app.querySelectorAll<HTMLButtonElement>("[data-terminal-action]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const action = button.dataset.terminalAction;
+      if (action === "start") void updateListenerLifecycle("start-listener", "Đã start listener");
+      if (action === "stop") void updateListenerLifecycle("stop-listener", "Đã dừng listener");
+      if (action === "kill") void updateListenerLifecycle("kill-listener", "Đã hủy listener");
+    });
+  });
 }
 
 function renderMatchDetailsPage(): string {
@@ -657,7 +722,7 @@ function renderMatchDetailsPage(): string {
 }
 
 function renderEventFeed(): string {
-  const events = (state.events || []).slice(0, 3);
+  const events = (state.events || []).filter((event) => event.type !== "team_eliminated").slice(0, 3);
   if (events.length === 0) return "";
 
   const seenNow = new Set<string>();
@@ -987,23 +1052,51 @@ function bindControlEvents(): void {
   app.querySelectorAll<HTMLInputElement | HTMLSelectElement>("[data-config]").forEach((input) => {
     input.addEventListener("input", () => {
       const key = input.dataset.config as keyof OverlayConfig;
-      const next = { ...config.overlay };
-      if (input.type === "checkbox") {
-        (next[key] as boolean) = input.checked;
-      } else if (input.type === "range") {
-        (next[key] as number) = Number(input.value);
-      } else {
-        (next[key] as string) = input.value;
-      }
-      config = { ...config, overlay: next };
-      triggerAnimationPreview(previewKindForConfigKey(key));
-      render();
-      void saveConfig();
+      updateOverlayConfigFromInput(key, input);
+    });
+  });
+
+  app.querySelectorAll<HTMLButtonElement>("[data-step-config]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const key = button.dataset.stepConfig as keyof OverlayConfig;
+      const delta = Number(button.dataset.stepDelta || "0");
+      const input = app.querySelector<HTMLInputElement>(`input[data-config="${key}"][type="range"]`);
+      if (!input || !Number.isFinite(delta)) return;
+
+      const step = Number(input.step || "1");
+      const min = Number(input.min || "0");
+      const max = Number(input.max || "0");
+      const current = Number(input.value || "0");
+      const decimals = decimalPlaces(step);
+      const nextValue = Math.max(min, Math.min(max, current + delta * step));
+      input.value = decimals ? nextValue.toFixed(decimals) : String(Math.round(nextValue));
+      updateOverlayConfigFromInput(key, input);
     });
   });
 
   bindGroupManagerEvents();
   bindPlayerManagerEvents();
+}
+
+function updateOverlayConfigFromInput(key: keyof OverlayConfig, input: HTMLInputElement | HTMLSelectElement): void {
+  const next = { ...config.overlay };
+  if (input instanceof HTMLInputElement && input.type === "checkbox") {
+    (next[key] as boolean) = input.checked;
+  } else if (input instanceof HTMLInputElement && input.type === "range") {
+    (next[key] as number) = Number(input.value);
+  } else {
+    (next[key] as string) = input.value;
+  }
+  config = { ...config, overlay: next };
+  triggerAnimationPreview(previewKindForConfigKey(key));
+  render();
+  void saveConfig();
+}
+
+function decimalPlaces(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  const text = String(value);
+  return text.includes(".") ? text.split(".")[1].length : 0;
 }
 
 function bindMatchDetailsEvents(): void {
@@ -1049,17 +1142,27 @@ async function loadMatchDetails(matchId: string, target: HTMLElement | null): Pr
 function renderMatchStatsPayload(payload: unknown): string {
   const data = normalizeMatchStatsPayload(payload);
   const teams = flattenTeamStats(data).sort((a, b) => Number(a.match_rank || 999) - Number(b.match_rank || 999));
+  const players = flattenPlayerStats(teams);
   const matchInfo = Array.isArray(data.match_info) ? data.match_info[0] : null;
+  const grenadeStats = (matchInfo?.grenade_stats && typeof matchInfo.grenade_stats === "object" ? matchInfo.grenade_stats : data.grenade_stats) || {};
 
   return `
     <div class="match-summary-grid">
       <div><span>Match</span><strong>${escapeHtml(String(matchInfo?.match_id || ""))}</strong></div>
+      <div><span>Tên trận</span><strong>${escapeHtml(String(matchInfo?.match_name || "N/A"))}</strong></div>
+      <div><span>Chế độ</span><strong>${escapeHtml(matchModeName(matchInfo?.mode))}</strong></div>
       <div><span>Teams</span><strong>${teams.length}</strong></div>
-      <div><span>Players</span><strong>${teams.reduce((sum, team) => sum + (Array.isArray(team.player_data) ? team.player_data.length : 0), 0)}</strong></div>
+      <div><span>Players</span><strong>${players.length}</strong></div>
+      <div><span>Total score</span><strong>${formatStatNumber(sumStats(teams, "total_score"))}</strong></div>
+      <div><span>Kills</span><strong>${formatStatNumber(sumStats(teams, "kills"))}</strong></div>
+      <div><span>Damage</span><strong>${formatStatNumber(sumStats(teams, "damage"))}</strong></div>
+      <div><span>Grenade kills</span><strong>${formatStatNumber(numberStat(grenadeStats.grenade_kills))}</strong></div>
+      <div><span>Ice walls</span><strong>${formatStatNumber(numberStat(grenadeStats.icewall_use))}</strong></div>
+      <div><span>Med kits</span><strong>${formatStatNumber(numberStat(grenadeStats.medkit_use))}</strong></div>
     </div>
-    <div class="match-team-list">
-      ${teams.map(renderMatchTeamCard).join("") || `<div class="empty-note">Không có dữ liệu team.</div>`}
-    </div>
+    ${renderTeamRankingTable(teams)}
+    ${renderPlayerStatsTable(players)}
+    ${renderPlayerLoadouts(players)}
   `;
 }
 
@@ -1080,28 +1183,261 @@ function flattenTeamStats(data: Record<string, any>): Array<Record<string, any>>
   return [];
 }
 
-function renderMatchTeamCard(team: Record<string, any>): string {
-  const players = Array.isArray(team.player_data) ? team.player_data : [];
+function flattenPlayerStats(teams: Array<Record<string, any>>): Array<Record<string, any>> {
+  return teams
+    .flatMap((team) => {
+      const teamName = String(team.team_name || "N/A");
+      const rank = Number(team.match_rank || 999);
+      return Array.isArray(team.player_data)
+        ? team.player_data.map((player: Record<string, any>) => ({
+            ...player,
+            team_name: player.team_name || teamName,
+            match_rank: player.match_rank || rank,
+            weapon: normalizePlayerWeapons(player)
+          }))
+        : [];
+    })
+    .sort((a, b) => {
+      const rankDiff = Number(a.match_rank || 999) - Number(b.match_rank || 999);
+      if (rankDiff !== 0) return rankDiff;
+      return numberStat(b.kills) - numberStat(a.kills);
+    });
+}
+
+function renderTeamRankingTable(teams: Array<Record<string, any>>): string {
+  if (teams.length === 0) return `<div class="empty-note">Không có dữ liệu team.</div>`;
+
   return `
-    <article class="match-team-card">
-      <header>
-        <strong>#${escapeHtml(String(team.match_rank || "-"))} ${escapeHtml(String(team.team_name || "Unknown"))}</strong>
-        <span>${Number(team.total_score || 0)} PTS / ${Number(team.kills || 0)} KILLS</span>
-      </header>
-      <div class="match-player-grid">
-        ${players
+    <section class="match-section">
+      <div class="match-section-head">
+        <h2>Bảng xếp hạng đội</h2>
+        <span>${teams.length} đội</span>
+      </div>
+      <div class="match-table-scroll">
+        <table class="match-data-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Đội</th>
+              <th>Điểm</th>
+              <th>Kill</th>
+              <th>Sinh tồn</th>
+              <th>Kill score</th>
+              <th>Damage</th>
+              <th>Booyah</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${teams
+              .map(
+                (team) => `
+                  <tr>
+                    <td>#${escapeHtml(String(team.match_rank || "-"))}</td>
+                    <td><strong>${escapeHtml(String(team.team_name || "Unknown"))}</strong></td>
+                    <td>${formatStatNumber(numberStat(team.total_score))}</td>
+                    <td>${formatStatNumber(numberStat(team.kills))}</td>
+                    <td>${formatStatNumber(numberStat(team.survival_score))}</td>
+                    <td>${formatStatNumber(numberStat(team.killing_score))}</td>
+                    <td>${formatStatNumber(numberStat(team.damage))}</td>
+                    <td>${team.booyah ? "YES" : "-"}</td>
+                  </tr>
+                `
+              )
+              .join("")}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  `;
+}
+
+function renderPlayerStatsTable(players: Array<Record<string, any>>): string {
+  if (players.length === 0) return `<div class="empty-note">Không có dữ liệu player.</div>`;
+
+  return `
+    <section class="match-section">
+      <div class="match-section-head">
+        <h2>Chỉ số người chơi</h2>
+        <span>${players.length} người chơi</span>
+      </div>
+      <div class="match-table-scroll">
+        <table class="match-data-table player-stats-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Người chơi</th>
+              <th>ID</th>
+              <th>Đội</th>
+              <th>Kill</th>
+              <th>Assist</th>
+              <th>Damage</th>
+              <th>Knock</th>
+              <th>Headshot</th>
+              <th>Trúng đích</th>
+              <th>Sống</th>
+              <th>Medkit</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${players
+              .map(
+                (player, index) => `
+                  <tr>
+                    <td>${index + 1}</td>
+                    <td><strong>${escapeHtml(String(player.player_name || player.playerName || "Player"))}</strong></td>
+                    <td>${escapeHtml(String(player.player_id || player.playerId || "-"))}</td>
+                    <td>${escapeHtml(String(player.team_name || "-"))}</td>
+                    <td>${formatStatNumber(numberStat(player.kills))}</td>
+                    <td>${formatStatNumber(numberStat(player.assists))}</td>
+                    <td>${formatStatNumber(numberStat(player.damage))}</td>
+                    <td>${formatStatNumber(numberStat(player.knock_down))}</td>
+                    <td>${formatStatNumber(numberStat(player.headshots))}</td>
+                    <td>${escapeHtml(formatStatValue(player.on_target || player.headshot_accuracy_rate))}</td>
+                    <td>${escapeHtml(formatStatValue(player.survival_time))}</td>
+                    <td>${formatStatNumber(numberStat(player.medkit_use))}</td>
+                  </tr>
+                `
+              )
+              .join("")}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  `;
+}
+
+function renderPlayerLoadouts(players: Array<Record<string, any>>): string {
+  const withLoadouts = players.filter((player) => {
+    return (
+      normalizePlayerWeapons(player).length > 0 ||
+      skillList(player.active_skills).length > 0 ||
+      skillList(player.passive_skills).length > 0 ||
+      skillList(player.pet_skills).length > 0 ||
+      skillList(player.loadout_skills).length > 0
+    );
+  });
+
+  if (withLoadouts.length === 0) return "";
+
+  return `
+    <section class="match-section">
+      <div class="match-section-head">
+        <h2>Kỹ năng và vũ khí</h2>
+        <span>${withLoadouts.length} người chơi có dữ liệu</span>
+      </div>
+      <div class="loadout-list">
+        ${withLoadouts
           .map(
-            (player: Record<string, any>) => `
-              <div>
-                <strong>${escapeHtml(String(player.player_name || player.player_id || "Player"))}</strong>
-                <span>${Number(player.kills || 0)} K / ${Number(player.damage || 0)} DMG / ${Number(player.knock_down || 0)} KD</span>
-              </div>
+            (player) => `
+              <details class="loadout-card">
+                <summary>
+                  <strong>${escapeHtml(String(player.player_name || player.player_id || "Player"))}</strong>
+                  <span>${escapeHtml(String(player.team_name || "-"))}</span>
+                </summary>
+                <div class="loadout-groups">
+                  ${renderSkillGroup("Chủ động", player.active_skills)}
+                  ${renderSkillGroup("Bị động", player.passive_skills)}
+                  ${renderSkillGroup("Pet", player.pet_skills)}
+                  ${renderSkillGroup("Loadout", player.loadout_skills)}
+                  ${renderWeaponGroup(normalizePlayerWeapons(player))}
+                </div>
+              </details>
             `
           )
           .join("")}
       </div>
-    </article>
+    </section>
   `;
+}
+
+function renderSkillGroup(title: string, rawSkills: unknown): string {
+  const skills = skillList(rawSkills);
+  return `
+    <div class="loadout-group">
+      <h3>${escapeHtml(title)}</h3>
+      <div class="chip-list">
+        ${skills.length ? skills.map(renderSkillChip).join("") : `<span class="muted-chip">Không có dữ liệu</span>`}
+      </div>
+    </div>
+  `;
+}
+
+function renderSkillChip(skill: Record<string, any>): string {
+  const name = String(skill.name || skill.skill || skill.skill_name || skill.skill_id || "Không rõ");
+  const pickTimes = numberStat(skill.total_match_pick_times ?? skill.pick_times);
+  const pickRate = skill.total_match_pick_rate ?? skill.pick_rate;
+  const meta = [pickTimes ? `${formatStatNumber(pickTimes)} pick` : "", pickRate ? `${Number(pickRate).toLocaleString("vi-VN", { maximumFractionDigits: 2 })}%` : ""]
+    .filter(Boolean)
+    .join(" | ");
+  return `<span class="stat-chip"><strong>${escapeHtml(name)}</strong>${meta ? `<em>${escapeHtml(meta)}</em>` : ""}</span>`;
+}
+
+function renderWeaponGroup(weapons: Array<Record<string, any>>): string {
+  return `
+    <div class="loadout-group loadout-group-wide">
+      <h3>Vũ khí</h3>
+      <div class="weapon-chip-grid">
+        ${
+          weapons.length
+            ? weapons
+                .sort((a, b) => numberStat(b.kills) - numberStat(a.kills))
+                .map((weapon) => {
+                  const name = String(weapon.weapon || weapon.name || "Không rõ");
+                  return `
+                    <span class="weapon-chip">
+                      <strong>${escapeHtml(name)}</strong>
+                      <em>${formatStatNumber(numberStat(weapon.kills))} K / ${formatStatNumber(numberStat(weapon.damage))} DMG / ${formatStatNumber(numberStat(weapon.headshots))} HS</em>
+                    </span>
+                  `;
+                })
+                .join("")
+            : `<span class="muted-chip">Không có dữ liệu</span>`
+        }
+      </div>
+    </div>
+  `;
+}
+
+function skillList(value: unknown): Array<Record<string, any>> {
+  return Array.isArray(value) ? value.filter((item): item is Record<string, any> => Boolean(item) && typeof item === "object") : [];
+}
+
+function normalizePlayerWeapons(player: Record<string, any>): Array<Record<string, any>> {
+  if (Array.isArray(player.weapon)) return player.weapon;
+  const merged: Array<Record<string, any>> = [];
+  if (Array.isArray(player.primary_weapons)) merged.push(...player.primary_weapons);
+  if (Array.isArray(player.secondary_weapons)) merged.push(...player.secondary_weapons);
+  return merged;
+}
+
+function numberStat(value: unknown): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function sumStats(items: Array<Record<string, any>>, key: string): number {
+  return items.reduce((sum, item) => sum + numberStat(item[key]), 0);
+}
+
+function formatStatNumber(value: number): string {
+  return value.toLocaleString("vi-VN");
+}
+
+function formatStatValue(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "N/A";
+  if (typeof value === "number") return formatStatNumber(value);
+  if (typeof value === "boolean") return value ? "true" : "false";
+  if (Array.isArray(value)) return value.join(", ");
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+
+function matchModeName(mode: unknown): string {
+  const numericMode = Number(mode);
+  if (numericMode === 1) return "Battle Royale";
+  if (numericMode === 2) return "Clash Squad";
+  if (numericMode === 3) return "Lone Wolf";
+  return Number.isFinite(numericMode) ? `Mode ${numericMode}` : "N/A";
 }
 
 function currentAnimationPreviewKind(): AnimationPreviewKind | null {
@@ -1847,9 +2183,13 @@ function rangeInput(
   step: number
 ): string {
   return `
-    <label class="field">
+    <label class="field range-field">
       <span>${label}</span>
-      <input data-config="${key}" type="range" min="${min}" max="${max}" step="${step}" value="${value}" />
+      <div class="range-stepper">
+        <button type="button" data-step-config="${key}" data-step-delta="-1" aria-label="Giảm ${escapeAttribute(label)}">-</button>
+        <input data-config="${key}" type="range" min="${min}" max="${max}" step="${step}" value="${value}" />
+        <button type="button" data-step-config="${key}" data-step-delta="1" aria-label="Tăng ${escapeAttribute(label)}">+</button>
+      </div>
       <output>${value}</output>
     </label>
   `;
@@ -1994,25 +2334,66 @@ function uniqueTeamNames(): string[] {
 }
 
 function parseCsvRows(text: string): string[][] {
-  return text
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => line.split(",").map((cell) => cell.trim().replace(/^"|"$/g, "")));
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = "";
+  let quoted = false;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    const next = text[index + 1];
+
+    if (char === '"' && quoted && next === '"') {
+      cell += '"';
+      index += 1;
+      continue;
+    }
+    if (char === '"') {
+      quoted = !quoted;
+      continue;
+    }
+    if (char === "," && !quoted) {
+      row.push(cell.trim());
+      cell = "";
+      continue;
+    }
+    if ((char === "\n" || char === "\r") && !quoted) {
+      if (char === "\r" && next === "\n") index += 1;
+      row.push(cell.trim());
+      if (row.some(Boolean)) rows.push(row);
+      row = [];
+      cell = "";
+      continue;
+    }
+
+    cell += char;
+  }
+
+  row.push(cell.trim());
+  if (row.some(Boolean)) rows.push(row);
+  return rows;
+}
+
+function headerIndex(header: string[], names: string[]): number {
+  return header.findIndex((cell) => names.includes(cell.toLowerCase().replace(/[^a-z0-9]/g, "")));
 }
 
 function parseGroupCsv(text: string): ManagedGroup[] {
   const rows = parseCsvRows(text);
   if (rows.length === 0) return [];
   const hasHeader = rows[0].some((cell) => /groupid|matchids|note/i.test(cell));
-  const header = hasHeader ? rows[0].map((cell) => cell.toLowerCase()) : [];
+  const header = hasHeader ? rows[0] : [];
+  const groupIdIndex = headerIndex(header, ["groupid", "group"]);
+  const matchIdsIndex = headerIndex(header, ["matchids", "matchid"]);
+  const noteIndex = headerIndex(header, ["note"]);
+  const teamNamesIndex = headerIndex(header, ["teamnames", "teamname"]);
   const dataRows = hasHeader ? rows.slice(1) : rows;
   return dataRows
     .map((row) => {
-      const groupId = hasHeader ? row[header.indexOf("groupid")] : row[0];
-      const matchIds = hasHeader ? row[header.indexOf("matchids")] || row[header.indexOf("matchid")] : row[1];
-      const note = hasHeader ? row[header.indexOf("note")] : row[2];
-      const teamNames = hasHeader ? row[header.indexOf("teamnames")] : row[3];
+      const groupId = hasHeader ? row[groupIdIndex] : row[0];
+      const matchIds = hasHeader ? row[matchIdsIndex] : row[1];
+      const note = hasHeader ? row[noteIndex] : row[2];
+      const teamNames = hasHeader ? row[teamNamesIndex] : row[3];
       const createdAt = new Date().toISOString();
 
       return {
@@ -2030,9 +2411,18 @@ function parsePlayerCsv(text: string): ManagedPlayer[] {
   const rows = parseCsvRows(text);
   if (rows.length === 0) return [];
   const hasHeader = rows[0].some((cell) => /teamname|memberid|playerid|gamename|playername/i.test(cell));
+  const header = hasHeader ? rows[0] : [];
+  const teamNameIndex = headerIndex(header, ["teamname", "tagname", "team"]);
+  const playerIdIndex = headerIndex(header, ["playerid", "playerid", "memberid", "id"]);
+  const playerNameIndex = headerIndex(header, ["playername", "gamename", "name"]);
   const dataRows = hasHeader ? rows.slice(1) : rows;
   return dataRows
-    .map(([teamName, playerId, playerName]) => normalizePlayer({ teamName, playerId, playerName }))
+    .map((row) => {
+      const teamName = hasHeader ? row[teamNameIndex] : row[0];
+      const playerId = hasHeader ? row[playerIdIndex] : row[1];
+      const playerName = hasHeader ? row[playerNameIndex] : row[2];
+      return normalizePlayer({ teamName, playerId, playerName });
+    })
     .filter((player): player is ManagedPlayer => Boolean(player));
 }
 

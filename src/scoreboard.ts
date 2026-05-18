@@ -138,6 +138,10 @@ export class ScoreboardState {
   }
 
   consumeLine(line: string): boolean {
+    if (this.matchEnded && this.isNextMatchLine(line)) {
+      this.resetForNextMatch();
+    }
+
     this.updateCurrentEvent(line);
 
     const playerJoin = line.match(/Player Join,\s*(\d+),\s*(\d+),\s*(.*?),\s*[^,]*\s*$/);
@@ -276,6 +280,17 @@ export class ScoreboardState {
     }
 
     return false;
+  }
+
+  private isNextMatchLine(line: string): boolean {
+    return /Player Join,\s*\d+,\s*\d+,/.test(line) || /OnTeamScoreInited -> TeamName: .*? TeamID: \d+/.test(line);
+  }
+
+  private resetForNextMatch(): void {
+    const sourceLog = this.sourceLog;
+    const sourceLogUpdatedAt = this.sourceLogUpdatedAt;
+    this.reset(sourceLog);
+    this.sourceLogUpdatedAt = sourceLogUpdatedAt;
   }
 
   toPublicState(): PublicState {

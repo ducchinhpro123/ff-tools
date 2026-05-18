@@ -21,7 +21,7 @@ import { DEFAULT_PORT } from "./defaults";
 import { isAbsoluteLogPath, isValidLogPath } from "./logPath";
 import { LogTailer } from "./logTailer";
 import { fetchAggregatedMatchStats, fetchMatchStats, normalizeMatchIds } from "./matchStats";
-import { assetsDir, publicDir, teamsCsvPath } from "./paths";
+import { assetsDir, projectRoot, publicDir, teamsCsvPath } from "./paths";
 import { ScoreboardState } from "./scoreboard";
 import type { ManagedGroup, ManagedPlayer, OverlayConfig, PublicConfig, PublicLogEntry, PublicState, TeamConfig } from "./types";
 
@@ -44,10 +44,25 @@ let isServerStarted = false;
 let activePort = 0;
 let activeMatchStatsContext: { groupId: string | null; matchIds: string[]; teamNames: string[] } | null = null;
 let refreshInFlight = false;
+let clientRoutesConfigured = false;
+let viteDevServer: { close: () => Promise<void> } | null = null;
 
 app.use(express.json({ limit: "64kb" }));
+app.use((request, response, next) => {
+  response.header("Access-Control-Allow-Origin", "*");
+  response.header("Vary", "Origin, Access-Control-Request-Headers");
+  response.header(
+    "Access-Control-Allow-Headers",
+    request.header("access-control-request-headers") || "Content-Type, Cache-Control"
+  );
+  response.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  if (request.method === "OPTIONS") {
+    response.status(204).end();
+    return;
+  }
+  next();
+});
 app.use("/assets", express.static(assetsDir));
-app.use(express.static(publicDir));
 
 function normalizeFilePath(value: unknown): string {
   return String(value || "")
@@ -406,14 +421,6 @@ app.post("/kill-listener", (request, response) => {
   response.json({ status: "ok", message: "Đã hủy listener", ...publicListenerState() });
 });
 
-app.get("/", (_request, response) => {
-  response.redirect("/overlay");
-});
-
-app.get(["/overlay", "/control", "/winrate", "/eliminated", "/terminal", "/match-details"], (_request, response) => {
-  response.sendFile(path.join(publicDir, "index.html"));
-});
-
 wss.on("connection", (socket) => {
   socket.send(
     JSON.stringify({
@@ -424,6 +431,57 @@ wss.on("connection", (socket) => {
     })
   );
 });
+
+async function loadVite() {
+  const dynamicImport = new Function("specifier", "return import(specifier)") as (specifier: string) => Promise<{
+    createServer: (options: Record<string, unknown>) => Promise<{
+      middlewares: express.RequestHandler;
+      transformIndexHtml: (url: string, html: string) => Promise<string>;
+      ssrFixStacktrace: (error: unknown) => void;
+      close: () => Promise<void>;
+    }>;
+  }>;
+  return dynamicImport("vite");
+}
+
+async function configureClientRoutes(): Promise<void> {
+  if (clientRoutesConfigured) return;
+  clientRoutesConfigured = true;
+
+  app.get("/", (_request, response) => {
+    response.redirect("/overlay");
+  });
+
+  if (process.env.FF_TOOLS_DEV_CLIENT === "1") {
+    const { createServer } = await loadVite();
+    const vite = await createServer({
+      root: path.join(projectRoot, "web"),
+      appType: "custom",
+      server: {
+        middlewareMode: true
+      }
+    });
+    viteDevServer = vite;
+    app.use(vite.middlewares);
+
+    app.get(["/overlay", "/control", "/winrate", "/eliminated", "/terminal", "/match-details"], async (request, response, next) => {
+      try {
+        const template = fs.readFileSync(path.join(projectRoot, "web", "index.html"), "utf-8");
+        const html = await vite.transformIndexHtml(request.originalUrl, template);
+        response.status(200).set({ "Content-Type": "text/html" }).end(html);
+      } catch (error) {
+        vite.ssrFixStacktrace(error);
+        next(error);
+      }
+    });
+    return;
+  }
+
+  app.use(express.static(publicDir));
+  app.get(["/overlay", "/control", "/winrate", "/eliminated", "/terminal", "/match-details"], (_request, response) => {
+    response.sendFile(path.join(publicDir, "index.html"));
+  });
+}
 
 export interface StartedServer {
   port: number;
@@ -452,6 +510,11 @@ export async function stopServer(): Promise<void> {
     });
   });
 
+  if (viteDevServer) {
+    await viteDevServer.close();
+    viteDevServer = null;
+  }
+
   isServerStarted = false;
   activePort = 0;
 }
@@ -464,10 +527,14 @@ export async function startServer(port = Number(process.env.PORT || DEFAULT_PORT
     };
   }
 
-  const indexHtml = path.join(publicDir, "index.html");
-  if (!fs.existsSync(indexHtml)) {
-    throw new Error(`Không tìm thấy file build tại ${publicDir}. Chạy 'npm run build' trước.`);
+  if (process.env.FF_TOOLS_DEV_CLIENT !== "1") {
+    const indexHtml = path.join(publicDir, "index.html");
+    if (!fs.existsSync(indexHtml)) {
+      throw new Error(`Không tìm thấy file build tại ${publicDir}. Chạy 'npm run build' trước.`);
+    }
   }
+
+  await configureClientRoutes();
 
   overlayConfig = await loadOverlayConfig();
   groups = await loadManagedGroups();

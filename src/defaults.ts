@@ -1,6 +1,6 @@
 import type { OverlayConfig } from "./types";
 
-export const DEFAULT_PORT = 3977;
+export const DEFAULT_PORT = 5173;
 export const DEFAULT_LOG_DIR =
   "C:\\Users\\c\\Downloads\\OB53\\Free Fire_64_Data\\Debugger";
 

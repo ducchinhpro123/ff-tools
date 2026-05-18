@@ -503,6 +503,30 @@ test("onMatchStart re-arms after state.reset (new log file)", () => {
   assert.equal(calls, 2);
 });
 
+test("clears live players when a new match starts in the same debugger log", () => {
+  const state = new ScoreboardState();
+
+  [
+    "OnTeamScoreInited -> TeamName: OLD TeamID: 1",
+    "[2026-05-14 09:12:11.345][1][105] Player Join, 1001, 777, OldName,False1",
+    "[2026-05-14 09:12:11.377][1][105] [UIModelSpectator] AddPlayer id777,nameOldName,gsTeam1",
+    "[MatchResult] receive S2C_RUDP_MatchEnd_Res from GS",
+    "[2026-05-14 09:27:30.797][1][258] Player Join, 2002, 777, NewName,False2",
+    "[2026-05-14 09:27:30.804][1][258] [UIModelSpectator] AddPlayer id777,nameNewName,gsTeam2",
+    "[2026-05-14 09:27:30.810][1][258] Player Join, 3003, 888, Killer,False3",
+    "[2026-05-14 09:27:30.817][1][258] [UIModelSpectator] AddPlayer id888,nameKiller,gsTeam3",
+    "[2026-05-14 09:27:33.601][1][343] OnTeamScoreInited -> TeamName: NEW TeamID: 2",
+    "[2026-05-14 09:27:33.602][1][343] OnTeamScoreInited -> TeamName: KILL TeamID: 3",
+    "[2026-05-14 09:28:00.000][1][500] Player 777 Dead, killed by 888"
+  ].forEach((line) => state.consumeLine(line));
+
+  const publicState = state.toPublicState();
+  assert.equal(publicState.matchEnded, false);
+  assert.equal(publicState.events[0].victimName, "NewName");
+  assert.equal(publicState.events[0].killerName, "Killer");
+  assert.equal(publicState.teams.some((team) => team.name === "OLD"), false);
+});
+
 test("onMatchStart debounce coalesces rapid teamInit bursts", async () => {
   const state = new ScoreboardState();
   let calls = 0;

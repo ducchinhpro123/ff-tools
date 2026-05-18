@@ -789,6 +789,87 @@ body {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
+.terminal-console,
+.terminal-filters {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.terminal-console > div,
+.terminal-filters {
+  padding: 10px;
+  border: 1px solid rgb(255 255 255 / 0.1);
+  border-radius: 8px;
+  background: #151922;
+}
+
+.terminal-console span,
+.terminal-filters span {
+  display: block;
+  color: #9aa3b2;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.terminal-console strong {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  margin-top: 4px;
+  color: #f5f7fb;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  background: transparent !important;
+  border-color: transparent !important;
+  padding: 0 !important;
+}
+
+.terminal-actions button,
+.terminal-filters input,
+.terminal-filters select {
+  min-height: 38px;
+  border: 1px solid rgb(255 255 255 / 0.12);
+  border-radius: 6px;
+  background: #0f131b;
+  color: #f5f7fb;
+}
+
+.terminal-actions button {
+  padding: 0 14px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.terminal-actions button:not(.danger-button) {
+  background: #74d3ff;
+  color: #071016;
+}
+
+.terminal-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.terminal-filters {
+  grid-template-columns: minmax(0, 1fr) 150px auto;
+}
+
+.terminal-filters input,
+.terminal-filters select {
+  width: 100%;
+  padding: 0 12px;
+}
+
 .terminal-line {
   display: grid;
   grid-template-columns: 88px 70px 80px minmax(0, 1fr);
@@ -842,7 +923,7 @@ body {
 
 .match-summary-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 10px;
   margin-bottom: 14px;
 }
@@ -868,6 +949,149 @@ body {
 .match-team-list {
   display: grid;
   gap: 10px;
+}
+
+.match-section {
+  margin-top: 16px;
+}
+
+.match-section-head {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.match-section-head h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.match-section-head span {
+  color: #9aa3b2;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.match-table-scroll {
+  overflow: auto;
+  border: 1px solid rgb(255 255 255 / 0.1);
+  border-radius: 8px;
+  background: #151922;
+}
+
+.match-data-table {
+  width: 100%;
+  min-width: 860px;
+  border-collapse: collapse;
+}
+
+.match-data-table th,
+.match-data-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid rgb(255 255 255 / 0.08);
+  text-align: left;
+  vertical-align: top;
+  white-space: nowrap;
+}
+
+.match-data-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #10141b;
+  color: #9aa3b2;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.match-data-table td {
+  color: #d9dee8;
+  font-size: 13px;
+}
+
+.player-stats-table {
+  min-width: 1180px;
+}
+
+.loadout-list {
+  display: grid;
+  gap: 10px;
+}
+
+.loadout-card {
+  border: 1px solid rgb(255 255 255 / 0.1);
+  border-radius: 8px;
+  background: #151922;
+}
+
+.loadout-card summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  cursor: pointer;
+}
+
+.loadout-card summary span {
+  color: #9aa3b2;
+}
+
+.loadout-groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 10px;
+  padding: 0 12px 12px;
+}
+
+.loadout-group-wide {
+  grid-column: 1 / -1;
+}
+
+.loadout-group {
+  padding: 10px;
+  border-radius: 8px;
+  background: #0f131b;
+}
+
+.loadout-group h3 {
+  margin: 0 0 8px;
+  color: #9aa3b2;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.chip-list,
+.weapon-chip-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.stat-chip,
+.weapon-chip,
+.muted-chip {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  max-width: 260px;
+  padding: 7px 9px;
+  border: 1px solid rgb(116 211 255 / 0.16);
+  border-radius: 6px;
+  background: rgb(116 211 255 / 0.07);
+  color: #eef6fb;
+}
+
+.stat-chip em,
+.weapon-chip em,
+.muted-chip {
+  color: #9aa3b2;
+  font-size: 11px;
+  font-style: normal;
 }
 
 .match-team-card header {
@@ -1185,6 +1409,7 @@ body {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  margin-bottom: 28px;
 }
 
 .preset-actions button,
@@ -1461,13 +1686,14 @@ body {
 
 .control-grid {
   display: grid;
-  gap: 14px;
+  gap: 20px;
 }
 
 .field {
   display: grid;
-  grid-template-columns: 96px 1fr 54px;
-  gap: 12px;
+  grid-template-columns: 108px 1fr 66px;
+  column-gap: 16px;
+  row-gap: 8px;
   align-items: center;
   font-family: Arial, sans-serif;
   font-size: 14px;
@@ -1475,17 +1701,51 @@ body {
 
 .field output {
   color: #cfd4df;
+  padding-left: 4px;
   text-align: right;
+}
+
+.range-field {
+  grid-template-columns: 108px minmax(0, 1fr) 66px;
+}
+
+.range-stepper {
+  display: grid;
+  grid-template-columns: 34px minmax(130px, 1fr) 34px;
+  gap: 12px;
+  align-items: center;
+  min-width: 0;
+}
+
+.range-stepper button {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid rgb(116 211 255 / 0.3);
+  border-radius: 6px;
+  background: #0d1015;
+  color: #74d3ff;
+  font: 800 16px/1 Arial, sans-serif;
+  cursor: pointer;
+}
+
+.range-stepper button:hover {
+  border-color: #74d3ff;
+  background: rgb(116 211 255 / 0.12);
+}
+
+.range-stepper button:active {
+  transform: translateY(1px);
 }
 
 .color-field,
 .toggle-field,
 .select-field {
-  grid-template-columns: 96px 80px;
+  grid-template-columns: 108px 80px;
 }
 
 .select-field {
-  grid-template-columns: 96px 1fr;
+  grid-template-columns: 108px 1fr;
 }
 
 .select-field select {
@@ -1501,7 +1761,7 @@ body {
 }
 
 .color-reset-field {
-  grid-template-columns: 96px 1fr;
+  grid-template-columns: 108px 1fr;
 }
 
 .color-reset-field button {
@@ -1521,8 +1781,9 @@ body {
   color: #ff9d1e;
 }
 
-.field input[type="range"] {
+.range-stepper input[type="range"] {
   width: 100%;
+  min-width: 0;
 }
 
 .field input[type="color"] {
